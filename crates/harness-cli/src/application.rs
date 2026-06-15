@@ -408,4 +408,56 @@ mod tests {
         assert!(refreshed.contains("`Cargo.toml` — Manifest."));
         assert!(service.check().unwrap().is_empty());
     }
+
+    #[test]
+    fn knowledge_check_ignores_python_artifacts_but_detects_real_drift() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_root = temp_dir.path().join("demo");
+        fs::create_dir_all(repo_root.join("data")).unwrap();
+        fs::write(
+            repo_root.join("pyproject.toml"),
+            "[project]\nname=\"demo\"\n",
+        )
+        .unwrap();
+
+        let service = KnowledgeService::new(repo_root.clone());
+        service.scaffold().unwrap();
+
+        let index_path = repo_root.join("docs/KNOWLEDGE_INDEX.md");
+        let authored = fs::read_to_string(&index_path)
+            .unwrap()
+            .replace(
+                "TODO: Describe what this repository is for in 1-3 sentences (Purpose).",
+                "A demo repo.",
+            )
+            .replace(
+                "TODO: List the core concepts and terms an agent must know. See docs/GLOSSARY.md.",
+                "Core terms.",
+            )
+            .replace("`data/` — TODO: describe.", "`data/` — Data.")
+            .replace("`docs/` — TODO: describe.", "`docs/` — Docs.")
+            .replace(
+                "`pyproject.toml` — TODO: describe.",
+                "`pyproject.toml` — Python manifest.",
+            );
+        fs::write(&index_path, authored).unwrap();
+        assert!(service.check().unwrap().is_empty());
+
+        fs::create_dir_all(repo_root.join("data/__pycache__")).unwrap();
+        fs::create_dir_all(repo_root.join(".pytest_cache")).unwrap();
+        fs::write(repo_root.join("data/__pycache__/model.cpython-312.pyc"), "").unwrap();
+        assert!(
+            service.check().unwrap().is_empty(),
+            "generated Python artifacts should not make the index stale"
+        );
+
+        fs::create_dir_all(repo_root.join("real_missing")).unwrap();
+        let problems = service.check().unwrap();
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`real_missing`")),
+            "real top-level drift should still be reported: {problems:?}"
+        );
+    }
 }

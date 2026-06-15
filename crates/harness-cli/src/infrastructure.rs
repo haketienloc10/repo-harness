@@ -1730,6 +1730,13 @@ fn is_decision_file_name(file_name: &str) -> bool {
 }
 
 const KNOWLEDGE_IGNORE_DIRS: &[&str] = &["target", "node_modules", "dist", "build", "vendor"];
+const KNOWLEDGE_PYTHON_ARTIFACT_DIRS: &[&str] = &[
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    "htmlcov",
+];
 const KNOWLEDGE_WALK_MAX_DEPTH: usize = 4;
 
 /// Filesystem gateway for the Knowledge Index. Reads repo structure and tech
@@ -1799,11 +1806,10 @@ impl KnowledgeWorkspace {
             // Every top-level name is a detection signal (dotfiles included).
             signals.insert(name.clone());
 
-            // The structure listing skips hidden, build, and local-db noise.
-            // `is_ignored_dir` only applies to directories so a regular file
-            // that happens to share a name (e.g. `build`) is still listed.
-            let ignored =
-                is_hidden(&name) || (is_dir && is_ignored_dir(&name)) || is_db_artifact(&name);
+            // The structure listing skips hidden, build, Python-generated, and
+            // local-db noise. Directory ignores still keep a regular file that
+            // happens to share a name (e.g. `build`) listed.
+            let ignored = is_ignored_knowledge_entry(&name, is_dir);
             if !ignored {
                 entries.push(TopLevelEntry { name, is_dir });
             }
@@ -1840,7 +1846,7 @@ impl KnowledgeWorkspace {
                 if !entry.path().is_dir() {
                     continue;
                 }
-                if is_hidden(&name) || is_ignored_dir(&name) || is_db_artifact(&name) {
+                if is_ignored_knowledge_entry(&name, true) {
                     continue;
                 }
                 subdirectories.push(TopLevelEntry {
@@ -1914,12 +1920,15 @@ impl KnowledgeWorkspace {
                     continue;
                 };
                 if file_type.is_dir() {
-                    if is_hidden(&name) || is_ignored_dir(&name) {
+                    if is_hidden(&name) || is_ignored_knowledge_dir(&name) {
                         continue;
                     }
                     if depth + 1 < KNOWLEDGE_WALK_MAX_DEPTH {
                         stack.push((entry.path(), depth + 1));
                     }
+                    continue;
+                }
+                if is_db_artifact(&name) || is_python_generated_file(&name) {
                     continue;
                 }
                 if let Some(extension) = std::path::Path::new(&name)
@@ -2025,6 +2034,28 @@ fn is_hidden(name: &str) -> bool {
 
 fn is_ignored_dir(name: &str) -> bool {
     KNOWLEDGE_IGNORE_DIRS.contains(&name)
+}
+
+fn is_ignored_knowledge_dir(name: &str) -> bool {
+    is_ignored_dir(name) || is_python_generated_dir(name)
+}
+
+fn is_ignored_knowledge_entry(name: &str, is_dir: bool) -> bool {
+    is_hidden(name)
+        || is_db_artifact(name)
+        || if is_dir {
+            is_ignored_knowledge_dir(name)
+        } else {
+            is_python_generated_file(name)
+        }
+}
+
+fn is_python_generated_dir(name: &str) -> bool {
+    KNOWLEDGE_PYTHON_ARTIFACT_DIRS.contains(&name) || name.ends_with(".egg-info")
+}
+
+fn is_python_generated_file(name: &str) -> bool {
+    matches!(name, ".coverage") || name.ends_with(".pyc") || name.ends_with(".pyo")
 }
 
 fn is_db_artifact(name: &str) -> bool {
@@ -3057,6 +3088,41 @@ implemented
         assert!(commands.contains(&"npm run build"));
         assert!(commands.contains(&"npm run test"));
         assert!(!commands.contains(&"npm run dev"));
+    }
+
+    #[test]
+    fn gather_ignores_generated_python_artifacts() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_root = temp_dir.path().join("demo");
+        fs::create_dir_all(repo_root.join("data/__pycache__")).unwrap();
+        fs::create_dir_all(repo_root.join(".pytest_cache")).unwrap();
+        fs::create_dir_all(repo_root.join(".ruff_cache")).unwrap();
+        fs::create_dir_all(repo_root.join("htmlcov")).unwrap();
+        fs::create_dir_all(repo_root.join("package.egg-info")).unwrap();
+        fs::create_dir_all(repo_root.join("src")).unwrap();
+        fs::write(
+            repo_root.join("pyproject.toml"),
+            "[project]\nname=\"demo\"\n",
+        )
+        .unwrap();
+        fs::write(repo_root.join("module.pyc"), "").unwrap();
+        fs::write(repo_root.join("module.pyo"), "").unwrap();
+        fs::write(repo_root.join(".coverage"), "").unwrap();
+
+        let inputs = KnowledgeWorkspace::new(repo_root).gather().unwrap();
+        let names: Vec<&str> = inputs.entries.iter().map(|e| e.name.as_str()).collect();
+        let subdirs: Vec<&str> = inputs
+            .subdirectories
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+
+        assert_eq!(names, vec!["data", "pyproject.toml", "src"]);
+        assert!(subdirs.is_empty(), "__pycache__ should not be listed");
+        assert!(!names.contains(&"htmlcov"));
+        assert!(!names.contains(&"package.egg-info"));
+        assert!(!names.contains(&"module.pyc"));
+        assert!(!names.contains(&"module.pyo"));
     }
 
     #[test]
