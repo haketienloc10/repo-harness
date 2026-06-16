@@ -6,6 +6,11 @@ No application code exists yet. This document defines generic architecture
 questions and boundary rules that future implementation should adapt after a
 user-provided spec and stack decision exist.
 
+> Scope note: this file is **application design rules** (for the future app
+> stack), not the harness process itself. For the operational workflow, see
+> `docs/HARNESS.md` (§ Task Loop) and the executable framework in
+> `_harness/01-WORKFLOW.md`.
+
 ## Discovery Before Shape
 
 Before proposing implementation shape, identify:

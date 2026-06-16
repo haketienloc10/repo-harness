@@ -45,7 +45,6 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 - `crates/` — Rust source for the `harness-cli` durable-layer CLI.
 - `docs/` — Human reference: architecture, glossary, decisions, stories,
   templates.
-- `guides/` — Long-form harness guides and worked process examples.
 - `install-harness-cli.sh` — Installs the prebuilt `harness-cli` binary into a
   repo.
 - `install.sh` — Installs the harness payload (`_harness`, `docs`, `scripts`,

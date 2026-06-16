@@ -43,6 +43,15 @@ kebab-case `động từ-danh từ`.
 > Chỉ thêm dòng khi procedure NẶNG/ĐẶC THÙ đổi được hành vi. Map
 > `Trigger → skills/<tên>.md`.
 
+> **Bản đồ tên (knowledge index — một quy trình, ba tầng):** procedure thật là
+> skill harness `generate-knowledge-index`
+> (`skills/generate-knowledge-index.md`, dòng đăng ký ở trên). Host có thể bày
+> nó ra dưới tên skill/slash-command `knowledge-index` (vd `.claude/skills/`,
+> `.agents/skills/`) — đó chỉ là VỎ ủy thác về file trên, KHÔNG nhân bản nội
+> dung. Cả hai đều điều phối lệnh CLI `harness-cli knowledge scaffold` +
+> `knowledge check`. Khi sửa quy trình, sửa ở file skill harness; vỏ host chỉ
+> trỏ về.
+
 ## 6. Durable Layer (CLI)
 
 - Trace (GĐ5): nêu skill ở `--actions`/`--notes` (vd
