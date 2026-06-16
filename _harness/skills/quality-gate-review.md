@@ -15,7 +15,8 @@ Chạy 1 vòng review độc lập 3 lens rồi GATE. Self-check nội tuyến G
   Observability Contract).
 - Story packet (`execplan.md`/`design.md` + Validation) + intake (Lane / Hard
   Gates đã đếm GĐ1).
-- `docs/HARNESS_COMPONENTS.md` (11 Responsibilities) để quy gán finding.
+- 11 Responsibilities (danh sách ở `01-WORKFLOW.md` GĐ5; mô tả sâu
+  `docs/HARNESS_COMPONENTS.md`) để quy gán finding.
 
 ## STEPS
 

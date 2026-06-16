@@ -46,7 +46,7 @@ harness-cli trace --summary "<text>" --outcome <outcome> \
   [--intake <id> --story <id> --agent <name> --duration <s> --tokens <n> \
    --actions "a,b" --read "f1,f2" --changed "f1,f2" --decisions "d1,d2" \
    --errors "none" --friction "Mô tả. Attribution: <nguồn>." --notes "<text>"]
-harness-cli intervention add --trace <id> --type <type> --description "<text>" --source <human|reviewer|ci|agent> [--story <id> --impact "<text>"]
+harness-cli intervention add --trace <id> --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent> [--story <id> --impact "<text>"]
 harness-cli score-trace --id <id>    # chấm lại trace lịch sử (điểm in sẵn sau `trace`)
 harness-cli score-context <trace-id> # advisory: đối chiếu files_read với context rules
 
@@ -59,7 +59,7 @@ harness-cli propose [--commit]       # --commit CHỈ tạo backlog `proposed`, 
 # Knowledge & Tool Registry
 harness-cli knowledge scaffold       # sau đó: npx prettier --write docs/KNOWLEDGE_INDEX.md
 harness-cli knowledge check          # cổng cơ học; exit != 0 nếu lỗi
-harness-cli tool register --name <n> --command <cmd> --description "<10-200 ký tự>" --responsibility <R> \
+harness-cli tool register --name <n> --command <cmd> --description "<10-200 ký tự>" --responsibility <1 trong 11 Responsibilities — xem 01-WORKFLOW GĐ5> \
     [--kind cli|binary|mcp|skill|http] [--capability <kebab-case>] [--scan <path|url>] [--args "name:type:required[:help]"] [--force]
 harness-cli tool check [--name <name>] [--json]   # quét present/missing/unknown + ghi checked_at
 harness-cli tool remove --name <name>

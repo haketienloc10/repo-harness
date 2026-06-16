@@ -2,13 +2,14 @@
 
 ## ĐỊNH MỨC TOKEN (Context Budget)
 
-- **Phạm vi định mức (đọc trước khi áp số):** Định mức lane bên dưới CHỈ tính
-  phần context BIẾN ĐỔI theo tác vụ (intake docs, product/story/decision docs,
-  templates, file cần sửa). Tầng nền cố định — `00-AGENTS.md`, `01-WORKFLOW.md`,
-  `docs/KNOWLEDGE_INDEX.md`, `03-CLI_REFERENCE.md` (cheatsheet) — là chi phí
-  hằng (~9–10k token) cho MỌI lane, KHÔNG trừ vào định mức. (Bản guidance phía
-  người đọc: `docs/CONTEXT_RULES.md` §Token Budget Guidance — giữ hai nơi này
-  khớp nhau khi sửa.)
+- **Phạm vi định mức (đọc trước khi áp số):** Con số mỗi lane bên dưới là TỔNG
+  Harness context theo read-shape của lane (không tách "tầng nền" riêng) — khớp
+  định nghĩa ở `docs/CONTEXT_RULES.md` (nguồn chuẩn). Nguyên tắc vận hành: ưu
+  tiên `rg` có mục tiêu thay vì đọc hàng loạt; đọc section nhỏ nhất trả lời câu
+  hỏi của giai đoạn hiện tại; escalate context khi một retrieval trigger fire;
+  ngừng đọc history không liên quan khi đã rõ lane + file ảnh hưởng + validation
+  path. Mô hình phase × lane (Must/Should/Skip) chi tiết:
+  `docs/CONTEXT_RULES.md` (on-demand).
 - **Tài liệu dùng chung (Luôn có thể truy xuất):** Bất cứ khi nào cần tương tác
   với `harness.db`, Agent luôn được phép đọc `_harness/03-CLI_REFERENCE.md`
   (cheatsheet gọn) để lấy cú pháp; chi tiết sâu hơn nằm ở
@@ -23,12 +24,14 @@
   Rẻ hơn crawl `docs/`; dùng nó để chọn đúng file cần đọc tiếp cho lane hiện
   tại. Giới hạn freshness của `knowledge check`: xem nguồn duy nhất ở
   `00-AGENTS.md` §1.
-- **Tiny Lane:** ~2,000 tokens biến đổi. Ngoài tầng nền: đọc intake docs, matrix
-  query, và file cần sửa.
-- **Normal Lane:** ~5,000 tokens biến đổi. Đọc thêm product/story docs liên
-  quan, architecture (nếu cần đổi cấu trúc), và validation expectations.
-- **High-Risk Lane:** ~10,000 tokens biến đổi. Đọc toàn bộ intake, architecture,
-  quyết định liên quan, templates rủi ro cao.
+- **Tiny Lane:** ~2,000 tokens Harness context. Đọc: `00-AGENTS.md`, intake
+  docs, matrix query, và đúng file cần sửa.
+- **Normal Lane:** ~5,000 tokens Harness context. Đọc thêm product/story docs
+  liên quan, architecture (nếu cần đổi cấu trúc), validation expectations, và
+  trace spec ở cuối.
+- **High-Risk Lane:** ~10,000 tokens Harness context. Đọc toàn bộ intake,
+  architecture, quyết định liên quan, templates rủi ro cao, product/validation
+  docs, trace spec, và component/maturity docs.
 
 ---
 
@@ -38,27 +41,52 @@
   Purpose + Top-Level Structure của repo trước khi chọn Type và đếm Risk Flags
   (hiểu repo giúp phân loại đúng). Giới hạn freshness của `knowledge check`
   (đỏ/xanh nghĩa là gì): xem nguồn duy nhất ở `00-AGENTS.md` §1.
-- **1. Chọn Type:** `New spec`, `Spec slice`, `Change request`,
-  `New initiative`, `Maintenance request`, `Harness improvement`.
-  - **Map Type → Đích đến (artifact):** `New spec` → `docs/product/*` +
-    candidate epics + decisions; `Spec slice` → 1 story packet; `Change request`
-    → story packet hoặc patch; `New initiative` → initiative note + nhiều story;
-    `Maintenance request` → story / validation / decision; `Harness improvement`
-    → cập nhật docs hoặc backlog.
-- **2. Đếm Rủi ro (Risk Flags):** (1) Auth, (2) Authorization, (3) Data model,
-  (4) Audit/security, (5) External systems, (6) Public contracts, (7)
-  Cross-platform, (8) Existing behavior, (9) Weak proof, (10) Multi-domain.
+- **1. Chọn Type** (dùng khi → đích đến artifact):
+  - `New spec` — biến spec người dùng thành docs harness-ready →
+    `docs/product/*` kèm candidate epics và decisions.
+  - `Spec slice` — triển khai một hành vi đã chọn từ spec đã chấp nhận → 1 story
+    packet.
+  - `Change request` — đổi/sửa/tinh chỉnh hành vi đã chấp nhận → story packet
+    hoặc patch trực tiếp.
+  - `New initiative` — thêm mảng sản phẩm lớn cần nhiều story → initiative
+    note + nhiều story packet.
+  - `Maintenance request` — đổi hành vi kỹ thuật/vận hành/dependency → story /
+    validation report / decision.
+  - `Harness improvement` — cải thiện cách người + agent cộng tác → cập nhật
+    docs hoặc `harness-cli backlog add`.
+- **2. Đếm Rủi ro (Risk Flags) — đánh 1 cờ cho mỗi mục công việc CHẠM tới:**
+  - (1) **Auth** — login, logout, session, JWT, password, refresh token.
+  - (2) **Authorization** — role, permission, tenant hoặc company scope.
+  - (3) **Data model** — schema, migration, uniqueness, deletion, retention.
+  - (4) **Audit/security** — audit log, privacy, dữ liệu nhạy cảm, access log.
+  - (5) **External systems** — email, payment, cloud service, provider SDK,
+    queue, webhook.
+  - (6) **Public contracts** — API shape, response envelope, hành vi client thấy
+    được.
+  - (7) **Cross-platform** — phân tách desktop/mobile/browser, native shell,
+    deep link.
+  - (8) **Existing behavior** — đổi hành vi đã triển khai hoặc đã có test phủ.
+  - (9) **Weak proof** — test quanh vùng ảnh hưởng còn mơ hồ hoặc thiếu.
+  - (10) **Multi-domain** — hơn một product domain đổi cùng lúc.
 - **3. Hard Gates (Rào cản cứng):** Auth, Authorization, Data loss/migration,
   Audit/security, External provider, Làm yếu validation.
 - **4. Thuật toán Lane:**
-  - `IF` [Dính >= 1 Hard Gate] HOẶC [>= 4 Flags]: **Lane = high-risk** (NGOẠI
-    LỆ: nếu con người chủ động thu hẹp phạm vi rõ ràng, được phép hạ lane).
-  - `IF` [2-3 Flags]: **Lane = normal**.
+  - `IF` [>= 4 Flags]: **Lane = high-risk** (KHÔNG có ngoại lệ hạ lane cho nhánh
+    này).
+  - `IF` [Dính >= 1 Hard Gate]: **Lane = high-risk** (NGOẠI LỆ DUY NHẤT: nếu con
+    người chủ động thu hẹp phạm vi rõ ràng, được phép hạ lane — ngoại lệ này CHỈ
+    áp cho hard gate, KHÔNG áp cho nhánh `>= 4 Flags`).
+  - `IF` [2-3 Flags]: **Lane = normal** (validation mạnh hơn).
   - `IF` [0-1 Flags] VÀ [Sửa docs/copy/setup cơ bản]: **Lane = tiny**.
   - `IF` [0-1 Flags] VÀ [Đổi logic code]: **Lane = normal**.
-  - **[Lưu ý setup/health]:** Việc setup ban đầu hoặc thêm health/smoke endpoint
-    là _smoke proof_, KHÔNG tự động tính là cờ "Public contracts" → đừng leo
-    thang lane chỉ vì health endpoint.
+  - **[Lưu ý setup/health — ranh giới Tiny]:** Setup ban đầu CHỈ thuộc tiny khi
+    giới hạn ở: cài dependency đã khai báo, wiring server entrypoint, thêm
+    health/smoke endpoint, hoặc mở kết nối DB dev cục bộ — và KHÔNG tạo domain
+    schema, CRUD, auth, authorization, provider integration, hay data migration.
+    Health/smoke endpoint là _smoke proof_, KHÔNG tự tính là cờ "Public
+    contracts" → đừng leo thang lane chỉ vì health endpoint. Nhưng nếu setup
+    chạm bất kỳ thứ nào trong danh sách loại trừ trên (schema, auth,
+    migration…), nó KHÔNG còn là tiny → đếm flag/hard gate bình thường.
 - **5. Hành động:** Chạy
   `harness-cli intake --type "<loại>" --summary "<text>" --lane <lane>`.
 - **[Quy tắc cấm]:** KHÔNG ĐƯỢC tạo hoặc mở rộng một file `SPEC.md` nguyên khối.
@@ -144,8 +172,15 @@
 
 ## GIAI ĐOẠN 4: VALIDATION (Xác thực)
 
-- **Validation Ladder:** `validate:quick`, `test:integration`, `test:e2e`,
-  `test:platform`, `test:release`. KHÔNG báo cáo PASS nếu lệnh chưa tồn tại.
+- **Validation Ladder (nội dung từng nấc):**
+  - `validate:quick` — format, lint, typecheck, unit test, architecture check.
+  - `test:integration` — backend, database, provider, hoặc service check tùy
+    stack.
+  - `test:e2e` — luồng end-to-end người dùng thấy được.
+  - `test:platform` — shell, mobile, desktop, hoặc deployment smoke check tùy
+    stack.
+  - `test:release` — full suite, log check, và performance smoke.
+  - KHÔNG báo cáo PASS cho một nấc nếu lệnh chưa tồn tại VÀ chưa thực sự chạy.
 - **Batch verify trước mốc lớn:** Trước khi merge, claim maturity (H4+), hoặc
   chạy benchmark, BẮT BUỘC chạy `harness-cli story verify-all` để verify hàng
   loạt mọi story có `verify_command` (thoát `1` nếu có story fail).
@@ -174,26 +209,46 @@
 - **Outcome:** Chọn một trong: `completed`, `blocked`, `partial`, hoặc `failed`.
 - **Tier Rules & Cú pháp CLI:** (CHÚ Ý: Lệnh CLI nhận danh sách ngăn cách bằng
   DẤU PHẨY, KHÔNG truyền ngoặc vuông JSON array).
-  - `Minimal` (Tiny): Cần `task_summary` (>10 ký tự), `outcome`.
-  - `Standard` (Normal): Minimal + `intake_id`, `story_id`, `agent`,
-    `actions_taken` (dấu phẩy), `files_read` (dấu phẩy), `files_changed` (dấu
-    phẩy), `errors` hoặc `friction`.
-  - `Detailed` (High-Risk): Standard + `decisions_made` (dấu phẩy), `errors`
-    (ghi 'none' nếu không có), `duration_seconds`, `token_estimate`.
+  - `Minimal` (Tiny): Cần `task_summary` (>10 ký tự), `outcome`. **KHÔNG hợp lệ
+    cho:** việc normal/high-risk; HOẶC bất kỳ việc nào phát hiện friction,
+    errors, hay thiếu validation path → khi đó BẮT BUỘC nâng lên `Standard`.
+  - `Standard` (Normal): Minimal + `agent` + `actions_taken` (dấu phẩy) +
+    `files_read` (dấu phẩy) + `files_changed` (dấu phẩy) + ít nhất một trong
+    `errors`/`friction`; thêm `intake_id` **khi đã ghi intake**, `story_id`
+    **khi việc map gọn vào một story** (nếu một trace phủ nhiều story → dùng
+    story chính, liệt kê phần còn lại ở `notes`).
+  - `Detailed` (High-Risk): Standard + `decisions_made` (dấu phẩy) + `errors`
+    (ghi 'none' nếu không có) + `friction` (Detailed LUÔN ghi; 'none' chỉ sau
+    khi đã kiểm tra) + `duration_seconds` **hoặc** note giải thích vì sao không
+    có + `token_estimate` **hoặc** note giải thích vì sao không có + `notes`
+    **khi** một trace phủ nhiều story / nhiều risk flag / có bỏ qua validation.
+  - **Nâng tier theo lane:** Tiny→Minimal, Normal→Standard, High-Risk→Detailed.
+    NGOẠI LỆ bắt buộc: việc Tiny mà đổi Harness instruction/validation
+    expectation/durable record, HOẶC phát hiện friction → nâng lên `Standard`.
 - **Friction & Failure Attribution:** Friction phải NÊU ĐÍCH DANH VẤN ĐỀ (ghi
   'none' nếu đã kiểm tra và không có vấn đề).
-  `IF [Outcome == failed OR partial]`, BẮT BUỘC quy gán lỗi vào 1 trong 11
-  Responsibilities (VD: _Task specification_, _Data model_...).
+  `IF [Outcome == failed OR partial]`, BẮT BUỘC quy gán lỗi vào **1 trong 11
+  Responsibilities** (Runtime Substrate) dưới đây (VD: _Task specification_,
+  _Verification_...). LƯU Ý: "Data model" KHÔNG phải Responsibility — nó là Risk
+  Flag (GĐ1).
+  - **11 Responsibilities (nguồn quy gán cho mọi GĐ — GĐ5, cổng review, H3):**
+    (1) _Task specification_, (2) _Context selection_, (3) _Tool access_, (4)
+    _Project memory_, (5) _Task state_, (6) _Observability_, (7) _Failure
+    attribution_, (8) _Verification_, (9) _Permissions_, (10) _Entropy
+    auditing_, (11) _Intervention recording_. (Mô tả/trạng thái sâu:
+    `docs/HARNESS_COMPONENTS.md`.)
 - **Khi nào BẮT BUỘC ghi Friction:** (1) phải suy đoán một luật/nguồn-sự-thật
   còn thiếu; (2) validation không rõ, không chạy được, hoặc quá tốn kém; (3)
   doc/record/story cũ hoặc mâu thuẫn; (4) lộ ra bước thủ công lặp lại nên thành
-  template/lệnh/checklist; (5) thay đổi out-of-scope nhưng quan trọng về sau.
+  template/lệnh/checklist; (5) thay đổi out-of-scope nhưng quan trọng về sau;
+  (6) một benchmark/review fail mà KHÔNG quy được về một Component. Nếu friction
+  nên trở thành công việc → thêm/cập nhật backlog item (GĐ6).
 - **[Lưu ý] Decisions ≠ Decision record:** Trường `decisions` trong trace chỉ là
   bằng chứng, KHÔNG thay thế decision record bền vững ở
   `docs/decisions/NNNN-*.md` (xem GĐ2).
 - **Intervention (tách khỏi trace):** Khi human / reviewer / CI / agent khác
   **sửa, ghi đè, leo thang, hoặc duyệt** công việc, ghi bằng
-  `harness-cli intervention add --trace <id> --type <type> --description "<text>" --source <human|reviewer|ci|agent>`.
+  `harness-cli intervention add --trace <id> --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent>`.
   Intervention lưu RIÊNG trace và là đầu vào cho `propose` (GĐ6).
 - **Context score (advisory):** Có thể chạy
   `harness-cli score-context <trace-id>` để đối chiếu `files_read` với context
@@ -209,14 +264,36 @@
   `normal`, `high-risk`).
 - **Vòng tự cải tiến:**
   `friction + interventions + audit -> propose -> backlog`.
-  - Chạy `harness-cli audit` để lấy nhóm drift + điểm entropy (thấp là tốt;
-    trọng số ở `docs/HARNESS_AUDIT.md`).
-  - Chạy `harness-cli propose` để sinh đề xuất tất định từ
-    friction/intervention/audit; `propose --commit` CHỈ tạo backlog item
-    `proposed`, KHÔNG tự sửa policy hay tự duyệt.
-  - Con người duyệt proposal (`query backlog --open`). Đề xuất đổi source
-    hierarchy / kiến trúc / validation / risk policy PHẢI tạo decision record
-    trước khi áp dụng (xem `docs/IMPROVEMENT_PROTOCOL.md`).
+  - Chạy `harness-cli audit` để lấy nhóm drift + điểm entropy (THẤP là tốt).
+    - **6 nhóm drift (trọng số):** Orphaned stories — story planned/in_progress
+      không có trace liên kết (**10**); Broken tools — tool đã đăng ký nhưng
+      command không tìm thấy trên disk/PATH (**8**); Unverified stories — story
+      có `verify_command` nhưng chưa có kết quả verify (**5**); Unverified
+      decisions — decision có `verify_command` nhưng chưa verify (**5**); Stale
+      stories — story chưa implement mà trace mới nhất > 30 ngày (**3**); Open
+      backlog without outcomes — backlog `implemented` có `--predicted` nhưng
+      thiếu `--outcome` (**2**).
+    - **Điểm:** `score = Σ (số lượng × trọng số)`, **cap 100**. Diễn giải: `0`
+      hoàn hảo; `1-25` lành mạnh (housekeeping nhỏ); `26-50` cần chú ý (drift
+      tích tụ); `51-100` phải hành động (state cũ làm xói mòn giá trị Harness).
+  - Chạy `harness-cli propose` để sinh đề xuất tất định (rule-based). Nó tìm:
+    **trace friction lặp lại**, **pattern intervention lặp lại**, **audit
+    category khác 0**. Mỗi proposal gồm 8 trường: title, component, evidence,
+    predicted impact, risk, suggested action, validation plan, confidence.
+    `propose --commit` CHỈ tạo backlog item `proposed`, KHÔNG tự sửa policy hay
+    tự duyệt.
+  - **Review rules theo risk của proposal** (con người duyệt qua
+    `query backlog --open`):
+    - `tiny` — được implement trực tiếp KHI chỉ làm rõ docs.
+    - `normal` — cần một story packet hoặc backlog acceptance rõ ràng.
+    - `high-risk` — PHẢI tạo decision record bền vững TRƯỚC khi đổi source
+      hierarchy / kiến trúc / validation requirement / risk policy.
+    - Hoàn tất một proposal = đóng backlog item kèm `--outcome` (bằng chứng thực
+      tế).
+  - **Validation sau implementation:** đối chiếu predicted vs actual bằng
+    `harness-cli audit`, `query friction`, `query interventions` (và benchmark
+    trace quality nếu áp dụng). Chi tiết quy trình:
+    `docs/IMPROVEMENT_PROTOCOL.md`.
 
 ---
 
@@ -228,14 +305,32 @@ Docs/Matrix cập nhật, Validation đã chạy, Trace đã lưu.
 - **Cửa ải Quản trị (BẮT BUỘC xin phép người trước khi):** đổi hướng kiến trúc;
   gỡ hoặc làm yếu yêu cầu validation; đổi source-of-truth hierarchy; đổi luật
   phân loại rủi ro (lane/hard gate); thay thế chính workflow này.
-- **Rào cản Maturity (Anti-Hallucination):** (tra `docs/HARNESS_MATURITY.md`;
-  phân biệt rõ claim "partial" với "full").
-  - KHÔNG claim H3 nếu chưa có đối chiếu benchmark và quy gán lỗi theo
-    Component.
+- **Thang Maturity H0–H5 (một mức chỉ "achieved" khi tiêu chí kiểm chứng được
+  trong file/durable record/benchmark):**
+  - **H0 Bare Environment** — không có harness; chỉ nhận prompt và sinh patch.
+  - **H1 Scaffolding & Policy** — có instruction tĩnh, template, risk lane,
+    source-of-truth rule; durable state có thể còn thủ công.
+  - **H2 Durable State & Observability** — `harness-cli` ghi được
+    intake/story/decision/backlog/trace vào `harness.db`; có TRACE_SPEC,
+    CONTEXT_RULES, COMPONENTS, MATURITY.
+  - **H3 Active Observability & Evolution** — chấm điểm trace lặp lại được;
+    friction nhóm theo Component; backlog có predicted+outcome; benchmark quy
+    được responsibility nào dịch chuyển/regress.
+  - **H4 Automated Verification** — chạy/điều phối proof nhất quán; story có
+    `verify_command`; cảnh báo khi story liên kết chưa verify pass; lộ thiếu
+    proof trước final response.
+  - **H5 Self-Improving Harness** — dùng trace/benchmark/backlog outcome để đề
+    xuất/áp cải tiến an toàn; thay đổi high-risk dừng xin phép người.
+- **Rào cản Maturity (Anti-Hallucination)** — phân biệt rõ claim "partial" với
+  "full":
+  - KHÔNG claim H3 _full_ nếu chưa có đối chiếu benchmark VÀ quy gán lỗi theo
+    Component (11 Responsibilities, xem GĐ5).
   - H4 = batch verification: KHÔNG claim H4 nếu `story verify-all` chưa chạy
     được.
   - H5 = tự cải tiến: chỉ claim H5 _partial_ khi `audit` + `propose` +
     `intervention` đã có và chạy được; KHÔNG claim H5 _full_ cho tới khi
     benchmark/trace chứng minh vòng propose tạo delta dương (hoặc bị revert).
+  - (Tiêu chí/required files/benchmark indicators đầy đủ:
+    `docs/HARNESS_MATURITY.md`.)
 - **Hành động:** Trả lời User, tóm tắt rõ ID, thay đổi, và những gì không được
   thử.

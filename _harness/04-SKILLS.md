@@ -57,7 +57,7 @@ kebab-case `động từ-danh từ`.
 - Trace (GĐ5): nêu skill ở `--actions`/`--notes` (vd
   `"skill: quality-gate-review"`).
 - Finding `blocking` → `backlog` (GĐ6) với `--predicted`.
-- Lỗi thật → `--friction` quy về 1 trong 11 Responsibilities
-  (`docs/HARNESS_COMPONENTS.md`).
+- Lỗi thật → `--friction` quy về 1 trong 11 Responsibilities (danh sách ở
+  `01-WORKFLOW.md` GĐ5; mô tả sâu `docs/HARNESS_COMPONENTS.md`).
 - Friction/intervention lặp lại có thể được `harness-cli propose` (GĐ6) tổng hợp
   tất định thành backlog item `proposed`; con người vẫn là cổng duyệt.
