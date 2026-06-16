@@ -121,7 +121,21 @@ pub struct ToolEntry {
     pub responsibility: String,
     pub source: String,
     pub since: String,
+    /// How the tool is reached and probed: builtin, cli, binary, mcp, skill, http.
+    pub kind: String,
+    /// Workflow purpose a step looks the tool up by (inbound tools only).
+    pub capability: Option<String>,
+    /// Declarative thing `tool check` resolves to decide presence.
+    pub scan_target: Option<String>,
+    /// Last scanned verdict: present, missing, or unknown.
+    pub status: String,
+    /// When `tool check` last scanned this tool.
+    pub checked_at: Option<String>,
 }
+
+/// Kinds an inbound tool can register as. `cli`/`binary` are exec-probed on
+/// PATH; `mcp`/`skill`/`http` are scanned via their declarative `scan_target`.
+pub const TOOL_KINDS: &[&str] = &["cli", "binary", "mcp", "skill", "http"];
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ToolValidationError {
@@ -131,6 +145,12 @@ pub enum ToolValidationError {
     Responsibility(String, String),
     #[error("invalid --args spec '{0}'. Use name:type:required or name:type:required:help")]
     ArgSpec(String),
+    #[error("unknown --kind '{0}'. Use: {1}")]
+    Kind(String, String),
+    #[error(
+        "invalid --capability '{0}'. Use kebab-case: lowercase letters, digits, single hyphens"
+    )]
+    Capability(String),
 }
 
 pub fn parse_tool_args(value: Option<String>) -> Result<Vec<ToolArgSpec>, ToolValidationError> {
@@ -181,6 +201,35 @@ pub fn validate_responsibility(value: &str) -> Result<String, ToolValidationErro
         .ok_or_else(|| {
             ToolValidationError::Responsibility(value.to_owned(), RESPONSIBILITIES.join(", "))
         })
+}
+
+pub fn validate_tool_kind(value: &str) -> Result<String, ToolValidationError> {
+    let normalized = value.trim().to_lowercase();
+    TOOL_KINDS
+        .iter()
+        .find(|kind| **kind == normalized)
+        .map(|kind| (*kind).to_owned())
+        .ok_or_else(|| ToolValidationError::Kind(value.to_owned(), TOOL_KINDS.join(", ")))
+}
+
+/// Capability is intentionally an open, format-validated vocabulary rather than
+/// a closed list: the registry is the base for arbitrary future extensions, so
+/// new capabilities must not require a code change. Normalizing to kebab-case
+/// keeps step lookups (`query tools --capability X`) reliable despite the
+/// freedom. A recommended starter vocabulary lives in docs/TOOL_REGISTRY.md.
+pub fn normalize_capability(value: &str) -> Result<String, ToolValidationError> {
+    let normalized = value.trim().to_lowercase().replace([' ', '_'], "-");
+    let well_formed = !normalized.is_empty()
+        && normalized
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        && !normalized.starts_with('-')
+        && !normalized.ends_with('-')
+        && !normalized.contains("--");
+    if !well_formed {
+        return Err(ToolValidationError::Capability(value.to_owned()));
+    }
+    Ok(normalized)
 }
 
 pub fn compiled_tool_registry() -> Vec<ToolEntry> {
@@ -514,6 +563,11 @@ fn tool(
         responsibility: responsibility.to_owned(),
         source: "compiled".to_owned(),
         since: since.to_owned(),
+        kind: "builtin".to_owned(),
+        capability: None,
+        scan_target: None,
+        status: "present".to_owned(),
+        checked_at: None,
     }
 }
 

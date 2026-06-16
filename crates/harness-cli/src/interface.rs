@@ -13,12 +13,13 @@ use crate::application::{
 };
 use crate::domain::knowledge;
 use crate::domain::{
-    parse_optional_integer, parse_tool_args, proof_display, validate_responsibility, BacklogFilter,
-    BacklogRecord, BoolFlag, ContextScoreResult, CsvList, DecisionRecord, FrictionRecord,
-    HarnessStats, ImprovementProposal, InputType, IntakeRecord, InterventionRecord, RiskLane,
-    StoryMatrixRecord, StoryVerifyAllResult, ToolEntry, TraceQualityTier, TraceRecord,
-    TraceScoreResult, RISK_LANE_HELP,
+    normalize_capability, parse_optional_integer, parse_tool_args, proof_display,
+    validate_responsibility, validate_tool_kind, BacklogFilter, BacklogRecord, BoolFlag,
+    ContextScoreResult, CsvList, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
+    InputType, IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult,
+    ToolEntry, TraceQualityTier, TraceRecord, TraceScoreResult, RISK_LANE_HELP,
 };
+use crate::infrastructure::ToolCheckResult;
 
 #[derive(Parser, Debug)]
 #[command(name = "harness-cli")]
@@ -251,6 +252,8 @@ struct ToolArgs {
 #[derive(Subcommand, Debug)]
 enum ToolAction {
     Register(ToolRegisterArgs),
+    /// Scan registered tools and persist present/missing/unknown status.
+    Check(ToolCheckArgs),
     Remove {
         #[arg(long)]
         name: String,
@@ -271,6 +274,24 @@ struct ToolRegisterArgs {
     args: Option<String>,
     #[arg(long)]
     force: bool,
+    /// How the tool is reached and probed: cli, binary, mcp, skill, http.
+    #[arg(long, default_value = "cli")]
+    kind: String,
+    /// Workflow purpose a step looks the tool up by (kebab-case).
+    #[arg(long)]
+    capability: Option<String>,
+    /// Declarative path/URL `tool check` resolves to decide presence.
+    #[arg(long)]
+    scan: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ToolCheckArgs {
+    /// Check one tool by name; omit to check every registered tool.
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -400,6 +421,12 @@ struct ToolsQueryArgs {
     summary: bool,
     #[arg(long)]
     responsibility: Option<String>,
+    /// Filter to tools that provide this capability.
+    #[arg(long)]
+    capability: Option<String>,
+    /// Filter to tools with this scanned status: present, missing, unknown.
+    #[arg(long)]
+    status: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -549,6 +576,12 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
         },
         Command::Tool(args) => match args.action {
             ToolAction::Register(args) => {
+                let kind = validate_tool_kind(&args.kind)?;
+                let capability = args
+                    .capability
+                    .as_deref()
+                    .map(normalize_capability)
+                    .transpose()?;
                 service.register_tool(ToolRegisterInput {
                     name: args.name.clone(),
                     command: args.command,
@@ -556,8 +589,19 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     responsibility: validate_responsibility(&args.responsibility)?,
                     args: parse_tool_args(args.args)?,
                     force: args.force,
+                    kind,
+                    capability,
+                    scan_target: args.scan,
                 })?;
                 println!("Tool {} registered.", args.name);
+            }
+            ToolAction::Check(args) => {
+                let results = service.check_tools(args.name)?;
+                if args.json {
+                    print_tool_check_json(&results);
+                } else {
+                    print_tool_check_summary(&results);
+                }
             }
             ToolAction::Remove { name } => {
                 service.remove_tool(&name)?;
@@ -661,7 +705,16 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     .responsibility
                     .map(|value| validate_responsibility(&value))
                     .transpose()?;
-                let tools = service.query_tools(responsibility)?;
+                let capability = args
+                    .capability
+                    .as_deref()
+                    .map(normalize_capability)
+                    .transpose()?;
+                let mut tools = service.query_tools(responsibility, capability)?;
+                if let Some(status) = args.status.as_deref() {
+                    let normalized = status.trim().to_lowercase();
+                    tools.retain(|tool| tool.status == normalized);
+                }
                 if args.json {
                     print_tools_json(&tools);
                 } else {
@@ -1122,15 +1175,24 @@ fn print_tools_summary(records: &[ToolEntry]) {
         .iter()
         .map(|record| {
             vec![
-                record.command.clone(),
+                record.name.clone(),
+                record.kind.clone(),
+                record.capability.clone().unwrap_or_else(|| "-".to_owned()),
                 record.responsibility.clone(),
+                record.status.clone(),
                 record.source.clone(),
-                record.description.clone(),
             ]
         })
         .collect::<Vec<_>>();
     print_table(
-        &["command", "responsibility", "source", "description"],
+        &[
+            "name",
+            "kind",
+            "capability",
+            "responsibility",
+            "status",
+            "source",
+        ],
         &rows,
     );
 }
@@ -1169,10 +1231,65 @@ fn print_tools_json(records: &[ToolEntry]) {
             json_escape(&record.responsibility)
         );
         println!("    \"source\": \"{}\",", json_escape(&record.source));
-        println!("    \"since\": \"{}\"", json_escape(&record.since));
+        println!("    \"since\": \"{}\",", json_escape(&record.since));
+        println!("    \"kind\": \"{}\",", json_escape(&record.kind));
+        println!(
+            "    \"capability\": {},",
+            json_optional(record.capability.as_deref())
+        );
+        println!(
+            "    \"scan_target\": {},",
+            json_optional(record.scan_target.as_deref())
+        );
+        println!("    \"status\": \"{}\",", json_escape(&record.status));
+        println!(
+            "    \"checked_at\": {}",
+            json_optional(record.checked_at.as_deref())
+        );
         println!("  }}{comma}");
     }
     println!("]");
+}
+
+fn print_tool_check_summary(records: &[ToolCheckResult]) {
+    let rows = records
+        .iter()
+        .map(|record| {
+            vec![
+                record.name.clone(),
+                record.kind.clone(),
+                record.capability.clone().unwrap_or_else(|| "-".to_owned()),
+                record.status.clone(),
+                record.detail.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(&["name", "kind", "capability", "status", "detail"], &rows);
+}
+
+fn print_tool_check_json(records: &[ToolCheckResult]) {
+    println!("[");
+    for (index, record) in records.iter().enumerate() {
+        let comma = if index + 1 == records.len() { "" } else { "," };
+        println!("  {{");
+        println!("    \"name\": \"{}\",", json_escape(&record.name));
+        println!("    \"kind\": \"{}\",", json_escape(&record.kind));
+        println!(
+            "    \"capability\": {},",
+            json_optional(record.capability.as_deref())
+        );
+        println!("    \"status\": \"{}\",", json_escape(&record.status));
+        println!("    \"detail\": \"{}\"", json_escape(&record.detail));
+        println!("  }}{comma}");
+    }
+    println!("]");
+}
+
+fn json_optional(value: Option<&str>) -> String {
+    match value {
+        Some(value) => format!("\"{}\"", json_escape(value)),
+        None => "null".to_owned(),
+    }
 }
 
 fn print_interventions(records: &[InterventionRecord]) {

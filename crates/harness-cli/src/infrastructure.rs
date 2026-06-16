@@ -62,6 +62,17 @@ pub enum HarnessInfraError {
     Io(#[from] std::io::Error),
 }
 
+/// Outcome of one `tool check` scan. The CLI reports these facts; the agent
+/// applies policy (skip / degrade / use) based on `status`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCheckResult {
+    pub name: String,
+    pub kind: String,
+    pub capability: Option<String>,
+    pub status: String,
+    pub detail: String,
+}
+
 pub trait HarnessRepository {
     fn init(&self) -> Result<InitResult>;
     fn migrate(&self) -> Result<MigrateResult>;
@@ -77,6 +88,7 @@ pub trait HarnessRepository {
     fn close_backlog(&self, input: BacklogCloseInput) -> Result<()>;
     fn register_tool(&self, input: ToolRegisterInput) -> Result<()>;
     fn remove_tool(&self, name: &str) -> Result<()>;
+    fn check_tools(&self, name: Option<String>) -> Result<Vec<ToolCheckResult>>;
     fn add_intervention(&self, input: InterventionAddInput) -> Result<i64>;
     fn record_trace(&self, input: TraceInput) -> Result<i64>;
     fn score_trace(&self, id: Option<i64>) -> Result<TraceScoreResult>;
@@ -88,7 +100,11 @@ pub trait HarnessRepository {
     fn query_intakes(&self) -> Result<Vec<IntakeRecord>>;
     fn query_traces(&self) -> Result<Vec<TraceRecord>>;
     fn query_friction(&self) -> Result<Vec<FrictionRecord>>;
-    fn query_tools(&self, responsibility: Option<String>) -> Result<Vec<ToolEntry>>;
+    fn query_tools(
+        &self,
+        responsibility: Option<String>,
+        capability: Option<String>,
+    ) -> Result<Vec<ToolEntry>>;
     fn query_interventions(&self, filter: InterventionFilter) -> Result<Vec<InterventionRecord>>;
     fn query_stats(&self) -> Result<HarnessStats>;
     fn audit(&self) -> Result<AuditResult>;
@@ -715,7 +731,11 @@ impl HarnessRepository for SqliteHarnessRepository {
 
     fn register_tool(&self, input: ToolRegisterInput) -> Result<()> {
         validate_tool_description(&input.description)?;
-        if !input.force && !command_available(&self.repo_root, &input.command) {
+        // Only exec-probed kinds are PATH-checked at register time. mcp/skill/http
+        // are not on PATH by nature, so registering intent always succeeds; their
+        // presence is resolved later by `tool check` via scan_target.
+        let exec_probed = matches!(input.kind.as_str(), "cli" | "binary");
+        if exec_probed && !input.force && !command_available(&self.repo_root, &input.command) {
             return Err(HarnessInfraError::ToolCommandNotFound(input.command));
         }
 
@@ -732,14 +752,19 @@ impl HarnessRepository for SqliteHarnessRepository {
         }
 
         connection.execute(
-            "INSERT INTO tool (name, provider, command, description, args, responsibility, since)
-             VALUES (?1, 'custom', ?2, ?3, ?4, ?5, 'registered');",
+            "INSERT INTO tool
+                (name, provider, command, description, args, responsibility, since,
+                 kind, capability, scan_target, status)
+             VALUES (?1, 'custom', ?2, ?3, ?4, ?5, 'registered', ?6, ?7, ?8, 'unknown');",
             params![
                 input.name,
                 input.command,
                 input.description,
                 tool_args_json(&input.args),
                 input.responsibility,
+                input.kind,
+                input.capability,
+                input.scan_target,
             ],
         )?;
         Ok(())
@@ -752,6 +777,43 @@ impl HarnessRepository for SqliteHarnessRepository {
             return Err(HarnessInfraError::ToolNotFound(name.to_owned()));
         }
         Ok(())
+    }
+
+    fn check_tools(&self, name: Option<String>) -> Result<Vec<ToolCheckResult>> {
+        let connection = self.open_existing()?;
+        let mut statement = connection.prepare(
+            "SELECT name, kind, command, scan_target, capability FROM tool
+             WHERE (?1 IS NULL OR name = ?1)
+             ORDER BY name;",
+        )?;
+        let rows = statement.query_map(params![name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let tools = collect_rows(rows)?;
+
+        let mut results = Vec::with_capacity(tools.len());
+        for (name, kind, command, scan_target, capability) in tools {
+            let (status, detail) =
+                scan_tool_status(&self.repo_root, &kind, &command, scan_target.as_deref());
+            connection.execute(
+                "UPDATE tool SET status=?1, checked_at=datetime('now') WHERE name=?2;",
+                params![status, name],
+            )?;
+            results.push(ToolCheckResult {
+                name,
+                kind,
+                capability,
+                status: status.to_owned(),
+                detail,
+            });
+        }
+        Ok(results)
     }
 
     fn add_intervention(&self, input: InterventionAddInput) -> Result<i64> {
@@ -1052,11 +1114,16 @@ impl HarnessRepository for SqliteHarnessRepository {
         collect_rows(rows)
     }
 
-    fn query_tools(&self, responsibility: Option<String>) -> Result<Vec<ToolEntry>> {
+    fn query_tools(
+        &self,
+        responsibility: Option<String>,
+        capability: Option<String>,
+    ) -> Result<Vec<ToolEntry>> {
         let connection = self.open_existing()?;
         let mut tools = compiled_tool_registry();
         let mut statement = connection.prepare(
-            "SELECT provider, name, command, description, args, responsibility, since
+            "SELECT provider, name, command, description, args, responsibility, since,
+                    kind, capability, scan_target, status, checked_at
              FROM tool ORDER BY name;",
         )?;
         let rows = statement.query_map([], |row| {
@@ -1069,12 +1136,25 @@ impl HarnessRepository for SqliteHarnessRepository {
                 responsibility: row.get(5)?,
                 source: "registered".to_owned(),
                 since: row.get(6)?,
+                kind: row.get(7)?,
+                capability: row.get(8)?,
+                scan_target: row.get(9)?,
+                status: row.get(10)?,
+                checked_at: row.get(11)?,
             })
         })?;
         tools.extend(collect_rows(rows)?);
         if let Some(responsibility) = responsibility {
             let normalized = normalize_token(&responsibility);
             tools.retain(|tool| normalize_token(&tool.responsibility) == normalized);
+        }
+        if let Some(capability) = capability {
+            let normalized = normalize_token(&capability);
+            tools.retain(|tool| {
+                tool.capability
+                    .as_deref()
+                    .is_some_and(|value| normalize_token(value) == normalized)
+            });
         }
         Ok(tools)
     }
@@ -1179,15 +1259,28 @@ impl HarnessRepository for SqliteHarnessRepository {
             broken_tools: Vec::new(),
         };
 
-        let mut statement = connection.prepare("SELECT name, command FROM tool ORDER BY name;")?;
+        let mut statement =
+            connection.prepare("SELECT name, command, kind, status FROM tool ORDER BY name;")?;
         let rows = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
         })?;
-        for row in collect_rows(rows)? {
-            if !command_available(&self.repo_root, &row.1) {
+        for (name, command, kind, status) in collect_rows(rows)? {
+            // Exec-probed kinds are checked live against PATH. Scanned kinds
+            // (mcp/skill/http) are only "broken" once a scan has positively
+            // found them missing; an un-scanned `unknown` is not drift.
+            let broken = match kind.as_str() {
+                "cli" | "binary" => !command_available(&self.repo_root, &command),
+                _ => status == "missing",
+            };
+            if broken {
                 result.broken_tools.push(AuditFinding {
-                    id: row.0,
-                    title: row.1,
+                    id: name,
+                    title: command,
                 });
             }
         }
@@ -1571,6 +1664,104 @@ fn command_available(repo_root: &Path, command: &str) -> bool {
     }
     env::var_os("PATH")
         .is_some_and(|path| env::split_paths(&path).any(|dir| dir.join(first).exists()))
+}
+
+/// Kind-aware presence probe. Returns `(status, detail)` where status is one of
+/// `present` / `missing` / `unknown`. It never fails: an absent extension is a
+/// fact to report, not an error to raise.
+fn scan_tool_status(
+    repo_root: &Path,
+    kind: &str,
+    command: &str,
+    scan_target: Option<&str>,
+) -> (&'static str, String) {
+    match kind {
+        "cli" | "binary" => {
+            if command_available(repo_root, command) {
+                ("present", command.to_owned())
+            } else {
+                ("missing", command.to_owned())
+            }
+        }
+        "mcp" | "skill" => match scan_target.map(str::trim).filter(|t| !t.is_empty()) {
+            Some(target) => {
+                if scan_target_resolves(repo_root, target) {
+                    ("present", target.to_owned())
+                } else {
+                    ("missing", target.to_owned())
+                }
+            }
+            None => (
+                "unknown",
+                "no scan target; agent confirms availability".to_owned(),
+            ),
+        },
+        "http" => match scan_target.map(str::trim).filter(|t| !t.is_empty()) {
+            Some(target) => {
+                if http_reachable(target) || scan_target_resolves(repo_root, target) {
+                    ("present", target.to_owned())
+                } else {
+                    ("missing", target.to_owned())
+                }
+            }
+            None => ("unknown", "no scan target".to_owned()),
+        },
+        _ => ("unknown", String::new()),
+    }
+}
+
+/// Resolve a declarative scan target as a filesystem path: `~` expands to HOME,
+/// absolute paths are tested directly, relative paths are tested against the
+/// repo root.
+fn scan_target_resolves(repo_root: &Path, target: &str) -> bool {
+    let expanded = expand_home(target);
+    let path = Path::new(&expanded);
+    if path.is_absolute() {
+        path.exists()
+    } else {
+        repo_root.join(&expanded).exists()
+    }
+}
+
+fn expand_home(target: &str) -> String {
+    if let Some(rest) = target.strip_prefix("~/") {
+        if let Some(home) = env::var_os("HOME") {
+            return format!("{}/{}", home.to_string_lossy(), rest);
+        }
+    }
+    target.to_owned()
+}
+
+/// Best-effort TCP reachability for `http`/`https` scan targets. Any failure
+/// (parse, DNS, timeout, refused) is reported as not reachable rather than an
+/// error, so a down endpoint degrades the capability instead of breaking intake.
+fn http_reachable(target: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let (default_port, rest) = if let Some(rest) = target.strip_prefix("https://") {
+        (443u16, rest)
+    } else if let Some(rest) = target.strip_prefix("http://") {
+        (80u16, rest)
+    } else {
+        return false;
+    };
+
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.is_empty() {
+        return false;
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().unwrap_or(default_port)),
+        None => (authority, default_port),
+    };
+
+    let Ok(addresses) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    addresses
+        .into_iter()
+        .any(|address| TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_ok())
 }
 
 fn tool_args_json(args: &[ToolArgSpec]) -> Option<String> {
@@ -2116,7 +2307,7 @@ mod tests {
         assert_eq!(repository.query_stats().unwrap().intakes, 0);
         let connection = repository.open_existing().unwrap();
         let schema_version = SqliteHarnessRepository::schema_version(&connection).unwrap();
-        assert_eq!(schema_version, 4);
+        assert_eq!(schema_version, 5);
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
@@ -2133,16 +2324,74 @@ mod tests {
         let result = repository.migrate().unwrap();
 
         assert_eq!(result.current_version, 1);
-        assert_eq!(result.applied, vec![2, 3, 4]);
+        assert_eq!(result.applied, vec![2, 3, 4, 5]);
         let connection = repository.open_existing().unwrap();
         assert_eq!(
             SqliteHarnessRepository::schema_version(&connection).unwrap(),
-            4
+            5
         );
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
         assert!(story_columns.contains(&"last_verified_result".to_owned()));
+    }
+
+    #[test]
+    fn migration_005_backfills_kind_from_command_prefix() {
+        let (_temp_dir, repository) = test_repository();
+        let schema_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("scripts/schema");
+
+        // Build a pre-kind (v4) database: v1 base plus migrations 002-004 only.
+        let connection = repository.open_or_create().unwrap();
+        repository.apply_schema_v1(&connection).unwrap();
+        for file in [
+            "002-story-verify.sql",
+            "003-tool-registry.sql",
+            "004-intervention.sql",
+        ] {
+            let sql = std::fs::read_to_string(schema_dir.join(file)).unwrap();
+            connection.execute_batch(&sql).unwrap();
+        }
+        assert_eq!(
+            SqliteHarnessRepository::schema_version(&connection).unwrap(),
+            4
+        );
+
+        // Insert tools the old way (no kind column existed yet).
+        for (name, command) in [
+            ("mcp-example", "mcp:example-server"),
+            ("skill-example", "skill:example-skill"),
+            ("cli-example", "./deploy.sh"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO tool (name, command, description, responsibility)
+                     VALUES (?1, ?2, 'pre-kind registered tool example', 'Verification');",
+                    params![name, command],
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        // Upgrade: migration 005 must infer kind from the command prefix.
+        assert_eq!(repository.migrate().unwrap().applied, vec![5]);
+        let connection = repository.open_existing().unwrap();
+        let kind_of = |name: &str| -> String {
+            connection
+                .query_row(
+                    "SELECT kind FROM tool WHERE name=?1;",
+                    params![name],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(kind_of("mcp-example"), "mcp");
+        assert_eq!(kind_of("skill-example"), "skill");
+        assert_eq!(kind_of("cli-example"), "cli");
     }
 
     #[test]
@@ -2414,6 +2663,9 @@ mod tests {
                 responsibility: "Verification".to_owned(),
                 args: Vec::new(),
                 force: true,
+                kind: "cli".to_owned(),
+                capability: Some("deploy-verification".to_owned()),
+                scan_target: None,
             })
             .unwrap();
         assert!(matches!(
@@ -2424,22 +2676,98 @@ mod tests {
                 responsibility: "Verification".to_owned(),
                 args: Vec::new(),
                 force: true,
+                kind: "cli".to_owned(),
+                capability: Some("deploy-verification".to_owned()),
+                scan_target: None,
             }),
             Err(HarnessInfraError::ToolAlreadyExists(_, _))
         ));
 
         let verification_tools = repository
-            .query_tools(Some("Verification".to_owned()))
+            .query_tools(Some("Verification".to_owned()), None)
             .unwrap();
         assert!(verification_tools
             .iter()
             .any(|tool| tool.name == "deploy-check" && tool.source == "registered"));
+
+        // Capability lookup returns the registered provider.
+        let by_capability = repository
+            .query_tools(None, Some("deploy-verification".to_owned()))
+            .unwrap();
+        assert!(by_capability.iter().any(|tool| tool.name == "deploy-check"));
+
         repository.remove_tool("deploy-check").unwrap();
         assert!(!repository
-            .query_tools(None)
+            .query_tools(None, None)
             .unwrap()
             .iter()
             .any(|tool| tool.name == "deploy-check"));
+    }
+
+    #[test]
+    fn tool_check_scans_and_persists_status_per_kind() {
+        let (temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+
+        // Absolute scan targets keep the test hermetic: test_repository's
+        // repo_root points at the real project, so relative targets would
+        // resolve against the checkout rather than the temp dir.
+        let present_target = temp_dir.path().join("skill-present");
+        std::fs::create_dir_all(&present_target).unwrap();
+        let missing_target = temp_dir.path().join("mcp-missing");
+
+        // An mcp tool whose scan target does not exist -> missing.
+        repository
+            .register_tool(ToolRegisterInput {
+                name: "mcp-example".to_owned(),
+                command: "mcp:example-server".to_owned(),
+                description: "Example MCP-backed provider".to_owned(),
+                responsibility: "Verification".to_owned(),
+                args: Vec::new(),
+                force: false,
+                kind: "mcp".to_owned(),
+                capability: Some("impact-analysis".to_owned()),
+                scan_target: Some(missing_target.to_string_lossy().into_owned()),
+            })
+            .unwrap();
+
+        // A skill tool whose scan target exists -> present.
+        repository
+            .register_tool(ToolRegisterInput {
+                name: "skill-example".to_owned(),
+                command: "skill:example-skill".to_owned(),
+                description: "Example skill-backed provider".to_owned(),
+                responsibility: "Verification".to_owned(),
+                args: Vec::new(),
+                force: false,
+                kind: "skill".to_owned(),
+                capability: Some("impact-analysis".to_owned()),
+                scan_target: Some(present_target.to_string_lossy().into_owned()),
+            })
+            .unwrap();
+
+        let results = repository.check_tools(None).unwrap();
+        let mcp_tool = results.iter().find(|r| r.name == "mcp-example").unwrap();
+        let skill_tool = results.iter().find(|r| r.name == "skill-example").unwrap();
+        assert_eq!(mcp_tool.status, "missing");
+        assert_eq!(skill_tool.status, "present");
+
+        // Status is persisted, not just returned.
+        let stored = repository
+            .query_tools(None, Some("impact-analysis".to_owned()))
+            .unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(stored
+            .iter()
+            .all(|tool| tool.checked_at.as_deref().is_some_and(|v| !v.is_empty())));
+        assert_eq!(
+            stored
+                .iter()
+                .find(|t| t.name == "skill-example")
+                .unwrap()
+                .status,
+            "present"
+        );
     }
 
     #[test]
@@ -2561,6 +2889,9 @@ mod tests {
                 responsibility: "Verification".to_owned(),
                 args: Vec::new(),
                 force: true,
+                kind: "cli".to_owned(),
+                capability: None,
+                scan_target: None,
             })
             .unwrap();
         for _ in 0..2 {

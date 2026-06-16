@@ -192,9 +192,14 @@ scripts/bin/harness-cli knowledge check
 - Sau `scaffold` luôn chạy `npx prettier --write docs/KNOWLEDGE_INDEX.md` (repo
   dùng `proseWrap: always`); round-trip là idempotent.
 
-## 9. Tool Registry (khám phá + đăng ký công cụ)
+## 9. Tool Registry (inbound vs outbound; khám phá + đăng ký công cụ)
 
-Manifest công cụ đọc được bằng máy; chi tiết ở `docs/TOOL_REGISTRY.md`.
+Hai loại "tool" tách biệt — chi tiết + Degrade Ladder ở `docs/TOOL_REGISTRY.md`:
+
+- **Outbound (capability manifest):** các subcommand `harness-cli`, luôn compile
+  sẵn — chính là harness.
+- **Inbound registry:** công cụ do dự án trang bị để harness _dùng_ (linter,
+  code-graph, deploy-check). Tùy chọn; thiếu thì skip sạch, KHÔNG chặn core.
 
 ```bash
 # Xem công cụ compiled + đã đăng ký
@@ -202,13 +207,28 @@ scripts/bin/harness-cli query tools --summary
 scripts/bin/harness-cli query tools --json
 scripts/bin/harness-cli query tools --responsibility Verification
 
-# Đăng ký công cụ dự án bên ngoài
+# Tra theo CAPABILITY (cách một step nên hỏi: "có gì cho mục đích này?")
+scripts/bin/harness-cli query tools --capability impact-analysis --status present
+
+# Đăng ký công cụ inbound như provider của một capability
 scripts/bin/harness-cli tool register \
-  --name <name> \
-  --command <path-or-cmd> \
+  --name deploy-check \
+  --kind cli \
+  --capability deploy-verification \
+  --command ./scripts/deploy-check.sh \
   --description "<10-200 ký tự>" \
   --responsibility Verification \
   --args "env:enum:required:staging,production"
+
+# Đăng ký MCP server / Claude skill (không nằm trên PATH; presence resolve sau)
+scripts/bin/harness-cli tool register --name gitnexus --kind mcp \
+  --capability impact-analysis --scan ".gitnexus" --command "mcp:gitnexus" \
+  --description "Code-graph blast radius" --responsibility Verification
+
+# Quét hiện diện → ghi status (present/missing/unknown) + checked_at
+scripts/bin/harness-cli tool check            # quét tất cả
+scripts/bin/harness-cli tool check --name c3  # quét một
+scripts/bin/harness-cli tool check --json     # đọc được bằng máy
 
 # Gỡ công cụ
 scripts/bin/harness-cli tool remove --name <name>
@@ -216,9 +236,16 @@ scripts/bin/harness-cli tool remove --name <name>
 
 - Tên tool phải duy nhất; `--description` 10-200 ký tự; `--responsibility` phải
   thuộc danh sách Runtime Substrate (`docs/HARNESS_COMPONENTS.md`).
-- `--command` phải tồn tại trên PATH hoặc là đường dẫn; chỉ dùng `--force` khi
-  công cụ cố tình chưa có trên máy hiện tại.
+- `--kind` ∈ `cli|binary|mcp|skill|http` (default `cli`). `cli`/`binary` được
+  exec-probe trên PATH; `mcp`/`skill`/`http` quét qua `--scan` (path/URL).
+- `--capability` chuẩn hóa kebab-case (space/`_` → `-`); là **coupling duy
+  nhất** giữa step và tool — step tham chiếu capability, KHÔNG tham chiếu tên
+  tool.
+- `--command` (cho `cli`/`binary`) phải tồn tại trên PATH hoặc là đường dẫn; chỉ
+  dùng `--force` khi cố tình chưa có. `mcp`/`skill`/`http` bỏ qua kiểm tra này.
 - `--args` theo mẫu `name:type:required` hoặc `name:type:required:help`.
+- `tool check` luôn exit `0`: công cụ vắng mặt là _fact_ để báo, không phải lỗi.
+  Agent áp policy (skip/degrade/use) dựa trên `status` — xem Degrade Ladder.
 
 ## 10. Intervention (ghi can thiệp — tách khỏi trace)
 

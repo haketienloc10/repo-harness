@@ -78,9 +78,15 @@
     story liên quan TRƯỚC khi sửa.
   - `IF` phát hiện doc/record cũ, mâu thuẫn, hoặc lặp lại nhầm lẫn: Ghi
     `friction` (GĐ5) và cân nhắc thêm backlog.
-  - `IF` cần một công cụ/lệnh để verify hoặc thao tác: trước tiên dò tool
-    registry bằng `query tools`; nếu là công cụ dự án chưa đăng ký thì
-    `tool register` (xem `docs/TOOL_REGISTRY.md`).
+  - `IF` một bước CÓ THỂ dùng công cụ ngoài (linter, code-graph, deploy-check):
+    tra theo _capability_ — `query tools --capability <name> --status present` —
+    KHÔNG tham chiếu tên tool. Áp **Degrade Ladder** (xem
+    `docs/TOOL_REGISTRY.md`): không có provider nào đăng ký ⇒ capability
+    _inactive_ → skip sạch (KHÔNG phải drift); đăng ký nhưng `missing`/thiếu một
+    phần ⇒ _degraded_ → chạy với phần resolve được + bật cờ `Weak proof` + ghi
+    gap; tất cả `present` ⇒ Full. Chạy `tool check` đầu intake để `status` phản
+    ánh thực tế. Công cụ dự án chưa đăng ký thì
+    `tool register --kind <k> --capability <cap> [--scan <path|url>]`.
 - **Xử lý theo Input Type (DOCS FIRST):**
   - `IF [Type == New spec]`: Coi spec là _input material_, KHÔNG giữ làm spec
     sống. Xé nhỏ vào `docs/product/*` và tạo candidate epics/stories +

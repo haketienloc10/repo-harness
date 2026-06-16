@@ -7,7 +7,9 @@ use crate::domain::{
     InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult, StoryVerifyStatus,
     ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
 };
-use crate::infrastructure::{HarnessRepository, KnowledgeWorkspace, SqliteHarnessRepository};
+use crate::infrastructure::{
+    HarnessRepository, KnowledgeWorkspace, SqliteHarnessRepository, ToolCheckResult,
+};
 
 #[derive(Debug)]
 pub struct HarnessContext {
@@ -79,6 +81,9 @@ pub struct ToolRegisterInput {
     pub responsibility: String,
     pub args: Vec<ToolArgSpec>,
     pub force: bool,
+    pub kind: String,
+    pub capability: Option<String>,
+    pub scan_target: Option<String>,
 }
 
 #[derive(Debug)]
@@ -194,6 +199,13 @@ impl HarnessService {
         self.repository.remove_tool(name)
     }
 
+    pub fn check_tools(
+        &self,
+        name: Option<String>,
+    ) -> crate::infrastructure::Result<Vec<ToolCheckResult>> {
+        self.repository.check_tools(name)
+    }
+
     pub fn add_intervention(
         &self,
         input: InterventionAddInput,
@@ -250,8 +262,9 @@ impl HarnessService {
     pub fn query_tools(
         &self,
         responsibility: Option<String>,
+        capability: Option<String>,
     ) -> crate::infrastructure::Result<Vec<ToolEntry>> {
-        self.repository.query_tools(responsibility)
+        self.repository.query_tools(responsibility, capability)
     }
 
     pub fn query_interventions(

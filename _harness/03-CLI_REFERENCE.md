@@ -59,7 +59,9 @@ harness-cli propose [--commit]       # --commit CHỈ tạo backlog `proposed`, 
 # Knowledge & Tool Registry
 harness-cli knowledge scaffold       # sau đó: npx prettier --write docs/KNOWLEDGE_INDEX.md
 harness-cli knowledge check          # cổng cơ học; exit != 0 nếu lỗi
-harness-cli tool register --name <n> --command <cmd> --description "<10-200 ký tự>" --responsibility <R> [--args "name:type:required[:help]"]
+harness-cli tool register --name <n> --command <cmd> --description "<10-200 ký tự>" --responsibility <R> \
+    [--kind cli|binary|mcp|skill|http] [--capability <kebab-case>] [--scan <path|url>] [--args "name:type:required[:help]"] [--force]
+harness-cli tool check [--name <name>] [--json]   # quét present/missing/unknown + ghi checked_at
 harness-cli tool remove --name <name>
 
 # Query
@@ -67,7 +69,7 @@ harness-cli query matrix [--numeric]       # proof map; --numeric để copy và
 harness-cli query backlog --open|--closed
 harness-cli query intakes | decisions | traces | friction | stats
 harness-cli query interventions [--story <id>|--trace <id>|--type <type>]
-harness-cli query tools [--summary|--json|--responsibility <R>]
+harness-cli query tools [--summary|--json|--responsibility <R>|--capability <cap>|--status present|missing|unknown]
 harness-cli query sql "<SQL>"              # SQL thô (đọc)
 ```
 
