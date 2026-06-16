@@ -88,7 +88,10 @@
     chạm bất kỳ thứ nào trong danh sách loại trừ trên (schema, auth,
     migration…), nó KHÔNG còn là tiny → đếm flag/hard gate bình thường.
 - **5. Hành động:** Chạy
-  `harness-cli intake --type "<loại>" --summary "<text>" --lane <lane>`.
+  `harness-cli intake --type "<loại>" --summary "<text>" --lane <lane> --flags "<csv các flag đã đếm ở §2>"`.
+  Truyền `--flags` để durable layer giữ bằng chứng đằng sau lane (cần cho ngoại
+  lệ hạ lane ở §4 + `audit`/`propose` về sau). LƯU lại `intake_id` lệnh in ra —
+  dùng cho `--intake` ở GĐ4 và `trace --intake` ở GĐ5 (tránh orphan, drift ×10).
 - **[Quy tắc cấm]:** KHÔNG ĐƯỢC tạo hoặc mở rộng một file `SPEC.md` nguyên khối.
   Mọi thay đổi phải được xé nhỏ vào `docs/product/` và `docs/stories/`.
 
@@ -136,6 +139,11 @@
     - `execplan.md`: (Phải có Scope, Work Phases, Stop Conditions).
     - `design.md`: (Phải có Domain Model, Interface Contract, Data Model).
     - `validation.md`: (Phải có Test Plan, Fixtures).
+- **[BẮT BUỘC normal/high-risk] Ghi story vào durable layer — NGAY sau khi tạo
+  packet, TRƯỚC khi sang GĐ3:** chạy `harness-cli story add` (cú pháp + flag đầy
+  đủ: `03-CLI_REFERENCE.md` §GĐ2). Bỏ bước này thì `story update`/`story verify`
+  ở GĐ4 sẽ lỗi `story '<ID>' not found` (CLI không tự tạo row từ file packet).
+  Lane tiny KHÔNG có story → bỏ qua.
 - **Decisions:** Nếu đổi Auth, API shape, Security, Data ownership -> BẮT BUỘC
   tạo file `docs/decisions/NNNN-*.md` VÀ chạy
   `harness-cli decision add --id <NNNN-id> --title "<Tên>" --doc docs/decisions/<file>.md`.
@@ -186,14 +194,15 @@
   loạt mọi story có `verify_command` (thoát `1` nếu có story fail).
 - **Story Status:** `planned`, `in_progress`, `implemented` (đã code VÀ có
   proof), `changed`, `retired`.
-- **Hành động CLI:**
-  1. Gắn verify command:
-     `harness-cli story update --id <ID> --verify "<command>"`.
-  2. Chạy xác thực: `harness-cli story verify <ID>`. _(Lệnh thoát mã 0=pass,
-     1=fail. Nếu fail, Agent VẪN ĐƯỢC sang Giai đoạn 5 để ghi nhận tác vụ dở
-     dang)._
-  3. Cập nhật matrix: `harness-cli story update --id <ID> --unit 1 ...` (Dùng
-     1/0).
+- **[Lane tiny — không có story]:** BỎ mọi action `story ...` dưới đây. Chạy
+  `validate:quick` thủ công, ĐỌC log (stdout/stderr), rồi sang GĐ5 ghi `trace`
+  tier Minimal. Cửa ải Bằng chứng vẫn áp dụng cho log đã đọc.
+- **Hành động CLI (normal/high-risk)** _(cú pháp + flag đầy đủ:
+  `03-CLI_REFERENCE.md` §GĐ4)_:
+  1. Gắn verify command: `story update --id <ID> --verify "<command>"`.
+  2. Chạy xác thực: `story verify <ID>` _(thoát 0=pass, 1=fail; nếu fail Agent
+     VẪN ĐƯỢC sang GĐ5 để ghi tác vụ dở dang)_.
+  3. Cập nhật matrix: `story update --id <ID> --unit 1 ...` (dùng 1/0).
 - **[STOP] Cửa ải Bằng chứng:** BẮT BUỘC phải đọc log output (stdout/stderr) của
   lệnh `verify` trước khi đánh dấu `1` (pass) vào matrix. Cấm tự suy diễn kết
   quả. Nếu `quality-gate-review` (cổng GĐ3→4) vừa chạy `story verify` và code
@@ -248,7 +257,7 @@
   `docs/decisions/NNNN-*.md` (xem GĐ2).
 - **Intervention (tách khỏi trace):** Khi human / reviewer / CI / agent khác
   **sửa, ghi đè, leo thang, hoặc duyệt** công việc, ghi bằng
-  `harness-cli intervention add --trace <id> --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent>`.
+  `harness-cli intervention add --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent> [--trace <id>] [--story <id>]`.
   Intervention lưu RIÊNG trace và là đầu vào cho `propose` (GĐ6).
 - **Context score (advisory):** Có thể chạy
   `harness-cli score-context <trace-id>` để đối chiếu `files_read` với context
@@ -302,6 +311,11 @@
 Một tác vụ chỉ được coi là xong khi: Đổi code xong (hoặc block đã log),
 Docs/Matrix cập nhật, Validation đã chạy, Trace đã lưu.
 
+- **Smoke audit (BẮT BUỘC trước khi đóng tác vụ):** chạy `harness-cli audit`.
+  Nếu xuất hiện **Orphaned stories** (×10) hoặc **Unverified stories** (×5) do
+  chính tác vụ này tạo ra → xử lý NGAY (link trace / verify / ghi backlog GĐ6)
+  trước khi báo done. Rẻ, chặn đúng 2 nhóm drift nặng nhất. Entropy còn lại
+  thuộc housekeeping → để vòng GĐ6.
 - **Cửa ải Quản trị (BẮT BUỘC xin phép người trước khi):** đổi hướng kiến trúc;
   gỡ hoặc làm yếu yêu cầu validation; đổi source-of-truth hierarchy; đổi luật
   phân loại rủi ro (lane/hard gate); thay thế chính workflow này.

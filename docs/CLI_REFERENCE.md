@@ -39,13 +39,16 @@ scripts/bin/harness-cli --version   # Xem phiên bản CLI
 ## 2. Intake (phân loại đầu vào)
 
 ```bash
-scripts/bin/harness-cli intake --type <type> --summary "<text>" --lane <lane>
+# --flags lưu các Risk Flag đã đếm (CSV) → bằng chứng đằng sau lane
+scripts/bin/harness-cli intake --type <type> --summary "<text>" --lane <lane> \
+  --flags "auth,data-model,..."
 ```
 
 ## 3. Story & Verify
 
 ```bash
-# Thêm story (có thể gắn luôn lệnh proof cơ học bằng --verify)
+# Thêm story (BẮT BUỘC chạy TRƯỚC story update/verify — CLI báo lỗi
+# `story '<id>' not found` nếu row chưa tồn tại; có thể gắn proof bằng --verify)
 scripts/bin/harness-cli story add --id <id> --title "<text>" --lane <lane> \
   --verify "<command>"
 

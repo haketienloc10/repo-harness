@@ -28,12 +28,12 @@ nghĩa, ví dụ, gotchas → `docs/CLI_REFERENCE.md` (on-demand, CHỈ đọc m
 # Setup
 harness-cli init | migrate | import brownfield | --version
 
-# GĐ1 — Intake
-harness-cli intake --type <type> --summary "<text>" --lane <lane>
+# GĐ1 — Intake (--flags lưu bằng chứng lane; in ra intake_id để link GĐ4/GĐ5)
+harness-cli intake --type <type> --summary "<text>" --lane <lane> [--flags "f1,f2"] [--docs "d1,d2"] [--story <id>]
 
-# GĐ2 — Story & Decision
-harness-cli story add --id <id> --title "<text>" --lane <lane> [--verify "<cmd>"]
-harness-cli decision add --id <id> --title "<text>" --doc docs/decisions/<file>.md [--verify "<cmd>"] [--notes "<text>"]
+# GĐ2 — Story & Decision (BẮT BUỘC `story add` trước khi `story update/verify`)
+harness-cli story add --id <id> --title "<text>" --lane <lane> [--verify "<cmd>"] [--contract "<text>"]
+harness-cli decision add --id <id> --title "<text>" --doc docs/decisions/<file>.md [--verify "<cmd>"] [--predicted "<impact>"] [--notes "<text>"]
 
 # GĐ4 — Verify & Proof
 harness-cli story verify <id>        # exit 0=pass / 1=fail; ghi last_verified_*
@@ -46,7 +46,7 @@ harness-cli trace --summary "<text>" --outcome <outcome> \
   [--intake <id> --story <id> --agent <name> --duration <s> --tokens <n> \
    --actions "a,b" --read "f1,f2" --changed "f1,f2" --decisions "d1,d2" \
    --errors "none" --friction "Mô tả. Attribution: <nguồn>." --notes "<text>"]
-harness-cli intervention add --trace <id> --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent> [--story <id> --impact "<text>"]
+harness-cli intervention add --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent> [--trace <id>] [--story <id>] [--impact "<text>"]
 harness-cli score-trace --id <id>    # chấm lại trace lịch sử (điểm in sẵn sau `trace`)
 harness-cli score-context <trace-id> # advisory: đối chiếu files_read với context rules
 
