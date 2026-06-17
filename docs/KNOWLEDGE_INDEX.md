@@ -45,17 +45,20 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 - `_harness/` — Core agent execution framework: workflow, standards, CLI
   reference, skills.
 - `crates/` — Rust source for the `harness-cli` durable-layer CLI.
-- `docs/` — Human reference: architecture, glossary, decisions, stories,
-  templates.
+- `docs/` — Product workspace: decisions, stories, product specs, and generated
+  wiki/knowledge index.
 - `install-harness-cli.sh` — Installs the prebuilt `harness-cli` binary into a
   repo.
-- `install.sh` — Installs the harness payload (`_harness`, `docs`, `scripts`,
-  configs) into a target repo.
-- `scripts/` — Harness automation: prebuilt CLI binary (`bin/`) and SQLite
-  schema (`schema/`).
+- `install.sh` — Installs the harness payload (`_harness`, `docs`, configs) into
+  a target repo, injecting the Harness block into its `AGENTS.md`.
 
 ## Key Subdirectories
 
+- `_harness/bin/` — Prebuilt `harness-cli` binary shipped into installed repos.
+- `_harness/docs/` — Deep harness reference (architecture, glossary, CLI, tool
+  registry), authoring `templates/`, and design `proposals/`.
+- `_harness/schema/` — SQLite schema and migrations for the durable layer
+  (`harness.db`).
 - `_harness/skills/` — Reusable agent skill procedures (e.g.
   `generate-knowledge-index`), registered in `_harness/04-SKILLS.md`.
 - `crates/harness-cli/` — Rust source of the durable-layer CLI, split into
@@ -63,18 +66,11 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 - `docs/decisions/` — Architecture Decision Records (ADRs); the inherited
   decision log read before changing contracts.
 - `docs/product/` — Product specifications and contracts that stories implement.
-- `_harness/docs/proposals/` — Input-material design proposals; sliced into
-  stories/decisions, then frozen as design records.
 - `docs/stories/` — Story packets grouped under `epics/`; each story is the
   product contract for one change.
-- `_harness/docs/templates/` — Authoring templates for decisions, stories, spec intake,
-  and validation reports.
 - `docs/wiki/` — Generated DeepWiki: one page per major component (agent
   harness, CLI, data model, distribution, docs, skills), each linking back to
   source.
-- `_harness/bin/` — Prebuilt `harness-cli` binary shipped into installed repos.
-- `_harness/schema/` — SQLite schema and migrations for the durable layer
-  (`harness.db`).
 
 ## Key Concepts
 
