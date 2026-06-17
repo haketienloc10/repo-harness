@@ -15,12 +15,40 @@ INSTALL_ITEMS=(
   ".editorconfig"
   ".prettierignore"
   ".prettierrc"
-  "AGENTS.md"
   "_harness"
   "docs"
   "scripts"
   ".agents"
 )
+
+# AGENTS.md KHÔNG nằm trong INSTALL_ITEMS: thay vì copy nguyên file, ta NHÚNG
+# block Harness vào AGENTS.md của repo đích (xem install_agents_md). Nhờ vậy nội
+# dung "đây là tooling, KHÔNG phải source sản phẩm" chỉ xuất hiện ở repo ĐÍCH —
+# còn repo-harness (nơi _harness/ chính LÀ sản phẩm) không bị dính rule đó.
+HARNESS_BLOCK_BEGIN="<!-- HARNESS:BEGIN -->"
+HARNESS_BLOCK_END="<!-- HARNESS:END -->"
+
+# Đường dẫn gốc thuộc TẦNG VẬN HÀNH của Harness ở repo đích (engine + workspace
+# + tài liệu do agent quản lý) — KHÔNG phải mã nguồn sản phẩm. Dùng để sinh block
+# cảnh báo nhúng vào AGENTS.md. Giữ đồng bộ với INSTALL_ITEMS/is_excluded.
+HARNESS_OWNED_PATHS=(
+  "_harness/"
+  "scripts/bin/harness-cli"
+  "scripts/schema/"
+  "harness.db"
+  "docs/templates/"
+  "docs/product/"
+  "docs/stories/"
+  "docs/decisions/"
+  "docs/proposals/"
+  "docs/wiki/"
+  "docs/KNOWLEDGE_INDEX.md"
+  ".agents/skills/"
+)
+
+# Danh sách file thực sự được copy — ghi vào _harness/.harness-manifest ở cuối.
+# Vừa là DẤU HIỆU "repo này đã cài Harness", vừa phục vụ gỡ/nâng cấp về sau.
+INSTALLED_FILES=()
 
 # Artifact là TÀI NGUYÊN riêng của repo-harness — không phải khung mẫu, không
 # được sao chép sang repo đích. So khớp theo đường dẫn tương đối tính từ gốc
@@ -61,6 +89,85 @@ is_excluded() {
       esac ;;
   esac
   return 1
+}
+
+# Sinh block Harness (kèm marker) để nhúng vào AGENTS.md của repo đích.
+build_harness_block() {
+  printf '%s\n' "$HARNESS_BLOCK_BEGIN"
+  cat <<'EOF'
+
+## Harness
+
+Repo này **CÀI Harness** (xem `_harness/.harness-manifest`). Các đường dẫn dưới
+đây là **tầng vận hành** của Harness (engine + workspace + tài liệu do agent
+quản lý), **KHÔNG** phải mã nguồn sản phẩm của repo này. KHÔNG coi chúng là
+source cần sửa/test/review/refactor, và KHÔNG mô tả chúng như "the codebase"
+trong orient/wiki. Chỉ chạm khi tác vụ là **Harness Delta**:
+
+EOF
+  local p
+  for p in "${HARNESS_OWNED_PATHS[@]}"; do
+    printf -- '- `%s`\n' "$p"
+  done
+  cat <<'EOF'
+
+➡️ **Sản phẩm của repo = MỌI THỨ NGOÀI danh sách trên.**
+
+Trước khi làm việc, đọc: `_harness/00-AGENTS.md`
+EOF
+  printf '%s\n' "$HARNESS_BLOCK_END"
+}
+
+# Thay nội dung giữa marker HARNESS:BEGIN/END bằng block mới (idempotent khi
+# cài lại / nâng cấp). Block mới đã chứa sẵn cả hai marker.
+replace_harness_block() {
+  local file="$1" block="$2" tmp
+  tmp="$(mktemp)"
+  BLOCK="$block" awk -v b="$HARNESS_BLOCK_BEGIN" -v e="$HARNESS_BLOCK_END" '
+    $0 == b { print ENVIRON["BLOCK"]; skip=1; next }
+    $0 == e { skip=0; next }
+    !skip   { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+# Đảm bảo AGENTS.md repo đích có block Harness, KHÔNG ghi đè hướng dẫn riêng của
+# họ: tạo mới nếu chưa có; thay block nếu đã có marker; chèn cuối nếu chưa có.
+install_agents_md() {
+  local dest="$TARGET_DIR/AGENTS.md" block
+  block="$(build_harness_block)"
+
+  if [ ! -e "$dest" ]; then
+    {
+      printf '# Agent Instructions\n\n'
+      printf 'Add project-specific agent instructions here.\n\n'
+      printf '%s\n' "$block"
+    } >"$dest"
+    log "Tạo mới AGENTS.md + nhúng block Harness"
+  elif grep -qF "$HARNESS_BLOCK_BEGIN" "$dest"; then
+    replace_harness_block "$dest" "$block"
+    log "Cập nhật block Harness trong AGENTS.md có sẵn"
+  else
+    printf '\n%s\n' "$block" >>"$dest"
+    log "Chèn block Harness vào cuối AGENTS.md có sẵn"
+  fi
+}
+
+# Ghi _harness/.harness-manifest: đánh dấu repo đã cài Harness + liệt kê file.
+write_manifest() {
+  local manifest="$TARGET_DIR/_harness/.harness-manifest"
+  mkdir -p "$(dirname "$manifest")"
+  {
+    printf '# Harness manifest — sinh tự động bởi install.sh, KHÔNG sửa tay.\n'
+    printf '# Sự hiện diện của file này = repo CÀI Harness (không phải repo nguồn).\n'
+    printf 'source = %s/%s\n' "$REPO_OWNER" "$REPO_NAME"
+    printf 'ref = %s\n' "$REF"
+    printf '\n[files]\n'
+    if [ "${#INSTALLED_FILES[@]}" -gt 0 ]; then
+      printf '%s\n' "${INSTALLED_FILES[@]}" | LC_ALL=C sort
+    fi
+  } >"$manifest"
+  log "Ghi manifest: _harness/.harness-manifest (${#INSTALLED_FILES[@]} file)"
 }
 
 log() {
@@ -104,6 +211,7 @@ copy_file() {
   local dest="$TARGET_DIR/$rel"
   mkdir -p "$(dirname "$dest")"
   cp "$src" "$dest"
+  INSTALLED_FILES+=("$rel")
 }
 
 for item in "${INSTALL_ITEMS[@]}"; do
@@ -111,12 +219,6 @@ for item in "${INSTALL_ITEMS[@]}"; do
 
   if [ ! -e "$src" ]; then
     MISSING_ITEMS+=("$item")
-    continue
-  fi
-
-  # Không ghi đè AGENTS.md sẵn có của repo đích (chứa hướng dẫn riêng của họ).
-  if [ "$item" = "AGENTS.md" ] && [ -e "$TARGET_DIR/AGENTS.md" ]; then
-    log "Giữ nguyên AGENTS.md có sẵn (không ghi đè)"
     continue
   fi
 
@@ -134,6 +236,11 @@ for item in "${INSTALL_ITEMS[@]}"; do
 done
 
 ensure_empty_dir
+
+# Nhúng block Harness vào AGENTS.md repo đích (sau khi _harness/ đã có mặt) và
+# ghi manifest đánh dấu chế độ "đã cài Harness".
+install_agents_md
+write_manifest
 
 if [ "$SKIPPED_FILES" -gt 0 ]; then
   log "Đã bỏ qua $SKIPPED_FILES file artifact (tài nguyên riêng của repo nguồn)."
