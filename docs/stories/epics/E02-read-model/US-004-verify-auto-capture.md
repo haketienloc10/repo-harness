@@ -45,7 +45,7 @@ Capture is clean-by-mechanism (dedup), not a burden on agent discipline.
 
 ## Validation
 
-`scripts/bin/harness-cli story update --id US-004 --unit 1 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-004 --unit 1 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                                          |
 | ----------- | ------------------------------------------------------- |

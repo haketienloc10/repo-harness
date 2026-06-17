@@ -60,7 +60,7 @@ Hiện có đúng **3 mặt phẳng đọc**, đang lẫn vai:
    `created_at` sẵn có. Đồng nhất với `audit`/`propose`.
 4. **Token-aware.** `status` mục tiêu ≤ ~1k token: mỗi section có **trần dòng**
    (mặc định 5) và **báo số đã cắt** ("no silent caps"). Không bao giờ đổ raw.
-5. **Additive migration.** Theo đúng `scripts/schema/`: `ALTER TABLE ... ADD
+5. **Additive migration.** Theo đúng `_harness/schema/`: `ALTER TABLE ... ADD
    COLUMN` cho thay đổi cộng thêm, `CREATE TABLE` cho bảng mới, kèm
    `INSERT INTO schema_version`. Không phá cột/row cũ.
 6. **Repo sạch (chốt với người dùng).** Artifact nặng (P2) nằm local & gitignore;
@@ -317,7 +317,7 @@ INSERT INTO schema_version (version) VALUES (6);
 ### 4.3 Cắm vào workflow
 
 - **GĐ5 (Trace):** bổ sung luật "outcome partial/blocked ⇒ ghi next_action" vào
-  Friction & Failure Attribution. Cập nhật `docs/TRACE_SPEC.md` tier rules.
+  Friction & Failure Attribution. Cập nhật `_harness/docs/TRACE_SPEC.md` tier rules.
 - **GĐ0:** hint nổi lên qua `status`.
 
 ### 4.4 Acceptance criteria
@@ -433,7 +433,7 @@ Intervention: override 1 · approval 1
 
 ## 7. Tác động maturity & tài liệu phải cập nhật
 
-**Maturity (`docs/HARNESS_MATURITY.md`):**
+**Maturity (`_harness/docs/HARNESS_MATURITY.md`):**
 
 - P1+P5 củng cố **Observability** (read-model động) — bước tới H3 full (vẫn cần
   benchmark attribution, ngoài scope spec này).
@@ -450,11 +450,11 @@ Intervention: override 1 · approval 1
 | `00-AGENTS.md`                | §3: `status` chung predicate skip; nêu tầng Read-Model         |
 | `01-WORKFLOW.md`              | GĐ0 thêm bước 0b (status có-điều-kiện); GĐ4/5/7 cập nhật gate   |
 | `03-CLI_REFERENCE.md`         | Thêm cú pháp `query status`/`query recap`/`evidence`/`done-check`+`--next-action` |
-| `docs/CLI_REFERENCE.md`       | Ngữ nghĩa sâu + ví dụ từng lệnh                                |
-| `docs/TRACE_SPEC.md`          | next_action enforcement theo tier; evidence id ở notes        |
-| `docs/HARNESS_COMPONENTS.md`  | Cập nhật Observability/Verification status + file inventory    |
+| `_harness/docs/CLI_REFERENCE.md`       | Ngữ nghĩa sâu + ví dụ từng lệnh                                |
+| `_harness/docs/TRACE_SPEC.md`          | next_action enforcement theo tier; evidence id ở notes        |
+| `_harness/docs/HARNESS_COMPONENTS.md`  | Cập nhật Observability/Verification status + file inventory    |
 | `.gitignore`                  | Thêm `_harness/evidence/`                                      |
-| `scripts/schema/`             | `006-next-action.sql`, `007-evidence.sql`                      |
+| `_harness/schema/`             | `006-next-action.sql`, `007-evidence.sql`                      |
 
 **Decision records cần tạo (GĐ2 — vì đụng taxonomy CLI/observability):**
 

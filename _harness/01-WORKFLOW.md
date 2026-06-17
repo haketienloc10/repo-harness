@@ -4,19 +4,19 @@
 
 - **Phạm vi định mức (đọc trước khi áp số):** Con số mỗi lane bên dưới là TỔNG
   Harness context theo read-shape của lane (không tách "tầng nền" riêng) — khớp
-  định nghĩa ở `docs/CONTEXT_RULES.md` (nguồn chuẩn). Nguyên tắc vận hành: ưu
+  định nghĩa ở `_harness/docs/CONTEXT_RULES.md` (nguồn chuẩn). Nguyên tắc vận hành: ưu
   tiên `rg` có mục tiêu thay vì đọc hàng loạt; đọc section nhỏ nhất trả lời câu
   hỏi của giai đoạn hiện tại; escalate context khi một retrieval trigger fire;
   ngừng đọc history không liên quan khi đã rõ lane + file ảnh hưởng + validation
   path. Mô hình phase × lane (Must/Should/Skip) chi tiết:
-  `docs/CONTEXT_RULES.md` (on-demand).
+  `_harness/docs/CONTEXT_RULES.md` (on-demand).
 - **Tài liệu dùng chung (Luôn có thể truy xuất):** Bất cứ khi nào cần tương tác
   với `harness.db`, Agent luôn được phép đọc `_harness/03-CLI_REFERENCE.md`
   (cheatsheet gọn) để lấy cú pháp; chi tiết sâu hơn nằm ở
-  `docs/CLI_REFERENCE.md` và `harness-cli <cmd> --help` — chỉ tra on-demand,
+  `_harness/docs/CLI_REFERENCE.md` và `harness-cli <cmd> --help` — chỉ tra on-demand,
   KHÔNG preload. Để biết lệnh/công cụ nào đang có, dùng
   `harness-cli query tools --summary` (tool registry, xem
-  `docs/TOOL_REGISTRY.md`) thay vì đoán.
+  `_harness/docs/TOOL_REGISTRY.md`) thay vì đoán.
 - **Skill (nạp on-demand):** KHÔNG preload `skills/*`. Tới giai đoạn có trigger
   khớp trong registry `_harness/04-SKILLS.md`, mới đọc ĐÚNG file skill đó.
 - **Tầng nền (MỌI lane, đọc ĐẦU TIÊN):** `docs/KNOWLEDGE_INDEX.md` — bản đồ
@@ -110,7 +110,7 @@
 
 - **Retrieval Triggers (Kích hoạt lấy Context):**
   - `IF` chạm database schema, durable records, migrations: Đọc
-    `scripts/schema/`.
+    `_harness/schema/`.
   - `IF` chạm CLI/installer: Đọc `crates/harness-cli/*`.
   - `IF` liên quan đến maturity, benchmark, trace quality: tra cứu tài liệu tham
     chiếu sâu trong `docs/*` (xem `00-AGENTS.md` §1).
@@ -121,7 +121,7 @@
   - `IF` một bước CÓ THỂ dùng công cụ ngoài (linter, code-graph, deploy-check):
     tra theo _capability_ — `query tools --capability <name> --status present` —
     KHÔNG tham chiếu tên tool. Áp **Degrade Ladder** (xem
-    `docs/TOOL_REGISTRY.md`): không có provider nào đăng ký ⇒ capability
+    `_harness/docs/TOOL_REGISTRY.md`): không có provider nào đăng ký ⇒ capability
     _inactive_ → skip sạch (KHÔNG phải drift); đăng ký nhưng `missing`/thiếu một
     phần ⇒ _degraded_ → chạy với phần resolve được + bật cờ `Weak proof` + ghi
     gap; tất cả `present` ⇒ Full. Chạy `tool check` đầu intake để `status` phản
@@ -138,7 +138,7 @@
 - **Cập nhật Product & Tạo Story:**
   - `IF [Lane == tiny]`: Bỏ qua Story.
   - `IF [Lane == normal]`: Cập nhật `docs/product/*`. Tạo 1 file sao chép từ
-    `docs/templates/story.md` VÀ lưu theo chuẩn
+    `_harness/docs/templates/story.md` VÀ lưu theo chuẩn
     `docs/stories/epics/EXX-<domain>/US-YYY-<title>.md`.
   - `IF [Lane == high-risk]`: Cập nhật `docs/product/*`. Tạo folder mới theo
     chuẩn `docs/stories/epics/EXX-<domain>/US-YYY-<title>/`. BẮT BUỘC điền đủ 4
@@ -261,7 +261,7 @@
     _Project memory_, (5) _Task state_, (6) _Observability_, (7) _Failure
     attribution_, (8) _Verification_, (9) _Permissions_, (10) _Entropy
     auditing_, (11) _Intervention recording_. (Mô tả/trạng thái sâu:
-    `docs/HARNESS_COMPONENTS.md`.) `query recap` gom Friction theo đúng 11
+    `_harness/docs/HARNESS_COMPONENTS.md`.) `query recap` gom Friction theo đúng 11
     Responsibilities này.
 - **Next-action / Resume (BẮT BUỘC khi việc còn dở):** `IF [Outcome ∈
   {partial, blocked, failed}]` ⇒ trace BẮT BUỘC có `--next-action "<việc kế
@@ -325,7 +325,7 @@
   - **Validation sau implementation:** đối chiếu predicted vs actual bằng
     `harness-cli audit`, `query friction`, `query interventions` (và benchmark
     trace quality nếu áp dụng). Chi tiết quy trình:
-    `docs/IMPROVEMENT_PROTOCOL.md`.
+    `_harness/docs/IMPROVEMENT_PROTOCOL.md`.
 
 ---
 
@@ -375,6 +375,6 @@ Docs/Matrix cập nhật, Validation đã chạy, Trace đã lưu.
     `intervention` đã có và chạy được; KHÔNG claim H5 _full_ cho tới khi
     benchmark/trace chứng minh vòng propose tạo delta dương (hoặc bị revert).
   - (Tiêu chí/required files/benchmark indicators đầy đủ:
-    `docs/HARNESS_MATURITY.md`.)
+    `_harness/docs/HARNESS_MATURITY.md`.)
 - **Hành động:** Trả lời User, tóm tắt rõ ID, thay đổi, và những gì không được
   thử.

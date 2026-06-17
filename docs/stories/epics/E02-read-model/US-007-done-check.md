@@ -45,7 +45,7 @@ Aggregator only (read + exit code) — no new store.
 
 ## Validation
 
-`scripts/bin/harness-cli story update --id US-007 --unit 1 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-007 --unit 1 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                                        |
 | ----------- | ----------------------------------------------------- |

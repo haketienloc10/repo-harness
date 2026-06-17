@@ -6,9 +6,9 @@
 > flag của một lệnh bất kỳ: `harness-cli <cmd> --help`.
 
 Trạng thái vận hành (intake, story, decision, backlog, trace) sống trong
-`harness.db` và được thao tác qua `scripts/bin/harness-cli` (macOS/Linux) hoặc
-`scripts/bin/harness-cli.exe` (Windows). Agent và người PHẢI dùng binary này cho
-mọi việc Harness; KHÔNG sửa tay `harness.db`. Schema nằm dưới `scripts/schema/`.
+`harness.db` và được thao tác qua `_harness/bin/harness-cli` (macOS/Linux) hoặc
+`_harness/bin/harness-cli.exe` (Windows). Agent và người PHẢI dùng binary này cho
+mọi việc Harness; KHÔNG sửa tay `harness.db`. Schema nằm dưới `_harness/schema/`.
 
 ## Quy ước giá trị
 
@@ -26,13 +26,13 @@ mọi việc Harness; KHÔNG sửa tay `harness.db`. Schema nằm dưới `scrip
 ## 1. Setup
 
 ```bash
-scripts/bin/harness-cli init        # Khởi tạo harness.db nếu chưa có
-scripts/bin/harness-cli migrate     # Áp các schema migration còn thiếu
-scripts/bin/harness-cli import brownfield  # Seed durable records từ state markdown
-scripts/bin/harness-cli --version   # Xem phiên bản CLI
+_harness/bin/harness-cli init        # Khởi tạo harness.db nếu chưa có
+_harness/bin/harness-cli migrate     # Áp các schema migration còn thiếu
+_harness/bin/harness-cli import brownfield  # Seed durable records từ state markdown
+_harness/bin/harness-cli --version   # Xem phiên bản CLI
 ```
 
-- `migrate` áp các file dưới `scripts/schema/` chưa chạy. Chạy sau khi cập nhật
+- `migrate` áp các file dưới `_harness/schema/` chưa chạy. Chạy sau khi cập nhật
   binary hoặc thêm schema mới.
 - `import brownfield` chỉ dùng khi khởi tạo durable layer từ docs có sẵn.
 
@@ -40,7 +40,7 @@ scripts/bin/harness-cli --version   # Xem phiên bản CLI
 
 ```bash
 # --flags lưu các Risk Flag đã đếm (CSV) → bằng chứng đằng sau lane
-scripts/bin/harness-cli intake --type <type> --summary "<text>" --lane <lane> \
+_harness/bin/harness-cli intake --type <type> --summary "<text>" --lane <lane> \
   --flags "auth,data-model,..."
 ```
 
@@ -49,25 +49,25 @@ scripts/bin/harness-cli intake --type <type> --summary "<text>" --lane <lane> \
 ```bash
 # Thêm story (BẮT BUỘC chạy TRƯỚC story update/verify — CLI báo lỗi
 # `story '<id>' not found` nếu row chưa tồn tại; có thể gắn proof bằng --verify)
-scripts/bin/harness-cli story add --id <id> --title "<text>" --lane <lane> \
+_harness/bin/harness-cli story add --id <id> --title "<text>" --lane <lane> \
   --verify "<command>"
 
 # Cập nhật status
-scripts/bin/harness-cli story update --id <id> --status <status>
+_harness/bin/harness-cli story update --id <id> --status <status>
 
 # Cập nhật proof booleans (số 1/0)
-scripts/bin/harness-cli story update --id <id> \
+_harness/bin/harness-cli story update --id <id> \
   --unit 1 --integration 1 --e2e 0 --platform 0
 
 # Cấu hình / đổi lệnh verify
-scripts/bin/harness-cli story update --id <id> --verify "<command>"
+_harness/bin/harness-cli story update --id <id> --verify "<command>"
 
 # Chạy verify (chỉ nhận story id) — tự ghi log vào evidence store (default-on)
-scripts/bin/harness-cli story verify <id>
-scripts/bin/harness-cli story verify <id> --no-capture   # bỏ ghi evidence (lần nháp)
+_harness/bin/harness-cli story verify <id>
+_harness/bin/harness-cli story verify <id> --no-capture   # bỏ ghi evidence (lần nháp)
 
 # Chạy TẤT CẢ verify command đã cấu hình (batch) — dùng trước merge / claim maturity / benchmark
-scripts/bin/harness-cli story verify-all
+_harness/bin/harness-cli story verify-all
 ```
 
 - `story verify` chạy lệnh từ gốc repo, ghi `last_verified_at` +
@@ -89,7 +89,7 @@ scripts/bin/harness-cli story verify-all
 ## 4. Decision (quyết định)
 
 ```bash
-scripts/bin/harness-cli decision add \
+_harness/bin/harness-cli decision add \
   --id <id> \
   --title "<text>" \
   --doc docs/decisions/<file>.md \
@@ -98,20 +98,20 @@ scripts/bin/harness-cli decision add \
 
 - High-risk đụng auth, authorization, sở hữu dữ liệu, API shape, audit/security,
   hoặc validation: ghi quyết định ở CẢ hai nơi — file markdown dưới
-  `docs/decisions/` (từ `docs/templates/decision.md`) VÀ bản ghi durable ở trên.
+  `docs/decisions/` (từ `_harness/docs/templates/decision.md`) VÀ bản ghi durable ở trên.
 - Trường `--decisions` của trace chỉ là bằng chứng, KHÔNG thay cho bản ghi
   decision durable.
 - Có thể gắn lệnh verify cho decision và chạy:
 
 ```bash
-scripts/bin/harness-cli decision add --id <id> --title "<text>" --verify "<command>"
-scripts/bin/harness-cli decision verify <id>
+_harness/bin/harness-cli decision add --id <id> --title "<text>" --verify "<command>"
+_harness/bin/harness-cli decision verify <id>
 ```
 
 ## 5. Trace (ghi vết thực thi)
 
 ```bash
-scripts/bin/harness-cli trace \
+_harness/bin/harness-cli trace \
   --summary "<text>" \
   --intake <id> \
   --story <id> \
@@ -129,7 +129,7 @@ scripts/bin/harness-cli trace \
   --next-action "<việc kế tiếp>"
 ```
 
-- Độ sâu trường theo tier (lane) — xem `docs/TRACE_SPEC.md`. Lane càng cao,
+- Độ sâu trường theo tier (lane) — xem `_harness/docs/TRACE_SPEC.md`. Lane càng cao,
   trace càng phải đầy đủ (actions, read, changed, intake/story, friction).
 - **`--next-action` (resume continuity):** BẮT BUỘC khi `--outcome` ∈
   `{partial, blocked, failed}` (CLI từ chối rỗng, exit `!= 0`). Nếu trace có
@@ -141,15 +141,15 @@ scripts/bin/harness-cli trace \
   khi cần chấm lại một trace lịch sử cụ thể:
 
 ```bash
-scripts/bin/harness-cli score-trace --id <id>
+_harness/bin/harness-cli score-trace --id <id>
 ```
 
 - `score-context <trace-id>` (advisory): chấm `files_read` của trace so với
-  context rules đã biên dịch (`docs/CONTEXT_RULES.md`). KHÔNG đổi trace; chỉ báo
+  context rules đã biên dịch (`_harness/docs/CONTEXT_RULES.md`). KHÔNG đổi trace; chỉ báo
   coverage để biết thiếu ngữ cảnh gì.
 
 ```bash
-scripts/bin/harness-cli score-context <trace-id>
+_harness/bin/harness-cli score-context <trace-id>
 ```
 
 ## 5b. Evidence (con trỏ artifact bền vững)
@@ -160,11 +160,11 @@ Db giữ pointer + sha256 + digest; artifact thô nằm dưới `_harness/eviden
 
 ```bash
 # Ghi một artifact (hash + copy vào store + chèn con trỏ)
-scripts/bin/harness-cli evidence add --kind log --path run.log --story US-003 \
+_harness/bin/harness-cli evidence add --kind log --path run.log --story US-003 \
   --command "cargo test" --source agent --notes "manual sample"
 
 # Liệt kê (lọc theo story/trace/kind; --json để máy đọc)
-scripts/bin/harness-cli evidence list --story US-003 --json
+_harness/bin/harness-cli evidence list --story US-003 --json
 ```
 
 - `--kind` ∈ `log|diff|screenshot|report|file`. Text kind (`log/diff/report`)
@@ -180,20 +180,20 @@ scripts/bin/harness-cli evidence list --story US-003 --json
 ## 6. Query (truy vấn durable layer)
 
 ```bash
-scripts/bin/harness-cli query status             # Read-Model: đang/đã/cần làm gì (mục 6b)
-scripts/bin/harness-cli query recap --story <id>  # Rollup trace tất định (mục 6b)
-scripts/bin/harness-cli query matrix             # Proof map dạng yes/no
-scripts/bin/harness-cli query matrix --numeric   # Dạng 1/0 để copy vào update
-scripts/bin/harness-cli query backlog --open     # Item proposed/accepted
-scripts/bin/harness-cli query backlog --closed   # So predicted với outcome
-scripts/bin/harness-cli query intakes            # Intake gần đây
-scripts/bin/harness-cli query decisions          # Bản ghi decision durable
-scripts/bin/harness-cli query traces             # Danh sách trace đã ghi
-scripts/bin/harness-cli query friction           # Ma sát theo từng task
-scripts/bin/harness-cli query tools --summary    # Tool registry (xem mục 9)
-scripts/bin/harness-cli query interventions      # Can thiệp đã ghi (xem mục 10)
-scripts/bin/harness-cli query stats              # Thống kê tổng quan
-scripts/bin/harness-cli query sql "<SQL>"        # SQL thô trên harness.db (đọc)
+_harness/bin/harness-cli query status             # Read-Model: đang/đã/cần làm gì (mục 6b)
+_harness/bin/harness-cli query recap --story <id>  # Rollup trace tất định (mục 6b)
+_harness/bin/harness-cli query matrix             # Proof map dạng yes/no
+_harness/bin/harness-cli query matrix --numeric   # Dạng 1/0 để copy vào update
+_harness/bin/harness-cli query backlog --open     # Item proposed/accepted
+_harness/bin/harness-cli query backlog --closed   # So predicted với outcome
+_harness/bin/harness-cli query intakes            # Intake gần đây
+_harness/bin/harness-cli query decisions          # Bản ghi decision durable
+_harness/bin/harness-cli query traces             # Danh sách trace đã ghi
+_harness/bin/harness-cli query friction           # Ma sát theo từng task
+_harness/bin/harness-cli query tools --summary    # Tool registry (xem mục 9)
+_harness/bin/harness-cli query interventions      # Can thiệp đã ghi (xem mục 10)
+_harness/bin/harness-cli query stats              # Thống kê tổng quan
+_harness/bin/harness-cli query sql "<SQL>"        # SQL thô trên harness.db (đọc)
 ```
 
 ## 6b. Read-Model: `query status` & `query recap`
@@ -204,14 +204,14 @@ khi CHẠY workflow 7-GĐ (chung predicate với Execution Tracker, `00-AGENTS.m
 
 ```bash
 # Session brief: ranked theo ưu tiên hành động (≤ ~1k token)
-scripts/bin/harness-cli query status
-scripts/bin/harness-cli query status --lane high-risk --limit 3
-scripts/bin/harness-cli query status --full        # bỏ trần dòng
-scripts/bin/harness-cli query status --json        # cho host/agent parse
+_harness/bin/harness-cli query status
+_harness/bin/harness-cli query status --lane high-risk --limit 3
+_harness/bin/harness-cli query status --full        # bỏ trần dòng
+_harness/bin/harness-cli query status --json        # cho host/agent parse
 
 # Rollup trace tất định (count/group, KHÔNG tóm tắt ngữ nghĩa)
-scripts/bin/harness-cli query recap --story US-003
-scripts/bin/harness-cli query recap --epic US-00 --since 2026-06-01 --json
+_harness/bin/harness-cli query recap --story US-003
+_harness/bin/harness-cli query recap --epic US-00 --since 2026-06-01 --json
 ```
 
 - `query status` sections (theo thứ tự ưu tiên): ĐANG LÀM (in_progress) · CẦN
@@ -220,7 +220,7 @@ scripts/bin/harness-cli query recap --epic US-00 --since 2026-06-01 --json
   có drift entropy. Mỗi section có trần `--limit` (mặc định 5) và in `(+N nữa)`
   — "no silent caps". `--lane` lọc các section dẫn-xuất-từ-story.
 - `query recap` gom: outcome counts, files đụng (top theo tần suất), Friction
-  theo 11 Component (`docs/HARNESS_COMPONENTS.md`), decisions, intervention
+  theo 11 Component (`_harness/docs/HARNESS_COMPONENTS.md`), decisions, intervention
   counts. `--epic` khớp PREFIX của story id (vd `US-00` khớp US-001..US-009).
   Tất định: cùng db → cùng output.
 
@@ -228,14 +228,14 @@ scripts/bin/harness-cli query recap --epic US-00 --since 2026-06-01 --json
 
 ```bash
 # Thêm đề xuất cải tiến
-scripts/bin/harness-cli backlog add \
+_harness/bin/harness-cli backlog add \
   --title "<short name>" \
   --pain "<what was hard>" \
   --risk <tiny|normal|high-risk> \
   --predicted "<measurable impact>"
 
 # Đóng item kèm kết quả thực đo
-scripts/bin/harness-cli backlog close --id <id> --outcome "<actual result>"
+_harness/bin/harness-cli backlog close --id <id> --outcome "<actual result>"
 ```
 
 - Outcome loop: điền `--predicted` lúc tạo (tác động kỳ vọng), điền `--outcome`
@@ -248,10 +248,10 @@ scripts/bin/harness-cli backlog close --id <id> --outcome "<actual result>"
 # Tạo/làm mới docs/KNOWLEDGE_INDEX.md (regenerate Key Technologies, How to Run,
 # Top-Level Structure, Key Subdirectories; giữ nguyên Purpose/Key Concepts và
 # mô tả đã soạn giữa các marker)
-scripts/bin/harness-cli knowledge scaffold
+_harness/bin/harness-cli knowledge scaffold
 
 # Cổng cơ học: file có đủ mục, không lệch cấu trúc, không còn TODO (exit != 0 nếu lỗi)
-scripts/bin/harness-cli knowledge check
+_harness/bin/harness-cli knowledge check
 ```
 
 - Phần tất định (Key Technologies, How to Run, Top-Level Structure, Key
@@ -265,7 +265,7 @@ scripts/bin/harness-cli knowledge check
 
 ## 9. Tool Registry (inbound vs outbound; khám phá + đăng ký công cụ)
 
-Hai loại "tool" tách biệt — chi tiết + Degrade Ladder ở `docs/TOOL_REGISTRY.md`:
+Hai loại "tool" tách biệt — chi tiết + Degrade Ladder ở `_harness/docs/TOOL_REGISTRY.md`:
 
 - **Outbound (capability manifest):** các subcommand `harness-cli`, luôn compile
   sẵn — chính là harness.
@@ -274,15 +274,15 @@ Hai loại "tool" tách biệt — chi tiết + Degrade Ladder ở `docs/TOOL_RE
 
 ```bash
 # Xem công cụ compiled + đã đăng ký
-scripts/bin/harness-cli query tools --summary
-scripts/bin/harness-cli query tools --json
-scripts/bin/harness-cli query tools --responsibility Verification
+_harness/bin/harness-cli query tools --summary
+_harness/bin/harness-cli query tools --json
+_harness/bin/harness-cli query tools --responsibility Verification
 
 # Tra theo CAPABILITY (cách một step nên hỏi: "có gì cho mục đích này?")
-scripts/bin/harness-cli query tools --capability impact-analysis --status present
+_harness/bin/harness-cli query tools --capability impact-analysis --status present
 
 # Đăng ký công cụ inbound như provider của một capability
-scripts/bin/harness-cli tool register \
+_harness/bin/harness-cli tool register \
   --name deploy-check \
   --kind cli \
   --capability deploy-verification \
@@ -292,21 +292,21 @@ scripts/bin/harness-cli tool register \
   --args "env:enum:required:staging,production"
 
 # Đăng ký MCP server / Claude skill (không nằm trên PATH; presence resolve sau)
-scripts/bin/harness-cli tool register --name gitnexus --kind mcp \
+_harness/bin/harness-cli tool register --name gitnexus --kind mcp \
   --capability impact-analysis --scan ".gitnexus" --command "mcp:gitnexus" \
   --description "Code-graph blast radius" --responsibility Verification
 
 # Quét hiện diện → ghi status (present/missing/unknown) + checked_at
-scripts/bin/harness-cli tool check            # quét tất cả
-scripts/bin/harness-cli tool check --name c3  # quét một
-scripts/bin/harness-cli tool check --json     # đọc được bằng máy
+_harness/bin/harness-cli tool check            # quét tất cả
+_harness/bin/harness-cli tool check --name c3  # quét một
+_harness/bin/harness-cli tool check --json     # đọc được bằng máy
 
 # Gỡ công cụ
-scripts/bin/harness-cli tool remove --name <name>
+_harness/bin/harness-cli tool remove --name <name>
 ```
 
 - Tên tool phải duy nhất; `--description` 10-200 ký tự; `--responsibility` phải
-  thuộc danh sách Runtime Substrate (`docs/HARNESS_COMPONENTS.md`).
+  thuộc danh sách Runtime Substrate (`_harness/docs/HARNESS_COMPONENTS.md`).
 - `--kind` ∈ `cli|binary|mcp|skill|http` (default `cli`). `cli`/`binary` được
   exec-probe trên PATH; `mcp`/`skill`/`http` quét qua `--scan` (path/URL).
 - `--capability` chuẩn hóa kebab-case (space/`_` → `-`); là **coupling duy
@@ -325,7 +325,7 @@ duyệt** công việc. Interventions lưu riêng trace và là đầu vào cho 
 (mục 11).
 
 ```bash
-scripts/bin/harness-cli intervention add \
+_harness/bin/harness-cli intervention add \
   --trace <id> \
   --type correction \
   --description "<text>" \
@@ -333,30 +333,30 @@ scripts/bin/harness-cli intervention add \
   --story <id> \
   --impact "<text>"
 
-scripts/bin/harness-cli query interventions --story <id>
-scripts/bin/harness-cli query interventions --trace <id>
-scripts/bin/harness-cli query interventions --type correction
+_harness/bin/harness-cli query interventions --story <id>
+_harness/bin/harness-cli query interventions --trace <id>
+_harness/bin/harness-cli query interventions --type correction
 ```
 
 ## 11. Audit & Improvement (drift + tự cải tiến)
 
 Vòng tự cải tiến: `friction + interventions + audit -> propose -> backlog`. Xem
-`docs/HARNESS_AUDIT.md`, `docs/IMPROVEMENT_PROTOCOL.md`.
+`_harness/docs/HARNESS_AUDIT.md`, `_harness/docs/IMPROVEMENT_PROTOCOL.md`.
 
 ```bash
 # Drift audit: in từng nhóm lệch + điểm entropy (thấp là tốt, cap 100)
-scripts/bin/harness-cli audit
+_harness/bin/harness-cli audit
 
 # Sinh đề xuất cải tiến tất định từ friction/intervention/audit (advisory)
-scripts/bin/harness-cli propose
+_harness/bin/harness-cli propose
 
 # Chốt đề xuất thành backlog item `proposed` (KHÔNG sửa policy/duyệt hộ)
-scripts/bin/harness-cli propose --commit
+_harness/bin/harness-cli propose --commit
 ```
 
 - `audit` chấm: orphaned/unverified stories, unverified decisions, backlog thiếu
   outcome, story stale, broken tools (xem bảng trọng số ở
-  `docs/HARNESS_AUDIT.md`).
+  `_harness/docs/HARNESS_AUDIT.md`).
 - `propose` tất định, evidence-backed; mỗi đề xuất gồm component, evidence,
   predicted impact, risk, suggested action, validation plan, confidence.
 - `--commit` chỉ tạo backlog item `proposed`; con người vẫn là cổng duyệt
@@ -368,9 +368,9 @@ Aggregator các check sẵn có + evidence/next-action thành một gate có exi
 KHÔNG thêm store. Dùng ở GĐ7 thay cho tự khẳng định "done".
 
 ```bash
-scripts/bin/harness-cli done-check --story <id>     # exit 0=tất cả pass, 1=bất kỳ fail
-scripts/bin/harness-cli done-check --intake <id>    # resolve story qua intake.story_id
-scripts/bin/harness-cli done-check --story <id> --json
+_harness/bin/harness-cli done-check --story <id>     # exit 0=tất cả pass, 1=bất kỳ fail
+_harness/bin/harness-cli done-check --intake <id>    # resolve story qua intake.story_id
+_harness/bin/harness-cli done-check --story <id> --json
 ```
 
 - In checklist `✔/✘` từng dòng kèm lý do; `--json` trả `{passed, checks:[...]}`.

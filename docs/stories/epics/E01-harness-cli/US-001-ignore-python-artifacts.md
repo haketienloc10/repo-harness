@@ -43,12 +43,12 @@ generated Python artifacts while still reporting real repository structure drift
 ## Validation
 
 When updating durable proof status, use numeric booleans:
-`scripts/bin/harness-cli story update --id US-001 --unit 1 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-001 --unit 1 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                |
 | ----------- | ----------------------------- |
 | Unit        | `cargo test -p harness-cli`   |
-| Integration | `scripts/bin/harness-cli ...` |
+| Integration | `_harness/bin/harness-cli ...` |
 | E2E         | n/a                           |
 | Platform    | n/a                           |
 | Release     | n/a                           |
@@ -59,7 +59,7 @@ This story implements backlog item `1`.
 
 ## Evidence
 
-- `scripts/bin/harness-cli story verify US-001` — pass (`cargo test -p
+- `_harness/bin/harness-cli story verify US-001` — pass (`cargo test -p
   harness-cli`, 43 tests).
 - Temp-repo CLI acceptance: `knowledge scaffold` omitted `__pycache__` and
   `.pytest_cache`, `knowledge check` passed with those artifacts present, and a

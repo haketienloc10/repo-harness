@@ -4,21 +4,21 @@
 
 The harness keeps **policy in Markdown but operational data in SQLite**. The
 durable layer is a local `harness.db` file whose shape is defined entirely by
-ordered SQL migrations under [`scripts/schema/`](../../scripts/schema). The
+ordered SQL migrations under [`_harness/schema/`](../../_harness/schema). The
 [`harness-cli`](./harness-cli.md) crate creates the database, applies
 migrations, and reads/writes these tables. There are no ORMs or hand-edited
 database files — the schema is the source of truth.
 
 ## Key files
 
-- [`scripts/schema/001-init.sql`](../../scripts/schema/001-init.sql) — base
+- [`_harness/schema/001-init.sql`](../../_harness/schema/001-init.sql) — base
   schema: `schema_version`, `intake`, `story`, `decision`, `backlog`, `trace`.
-- [`scripts/schema/002-story-verify.sql`](../../scripts/schema/002-story-verify.sql)
+- [`_harness/schema/002-story-verify.sql`](../../_harness/schema/002-story-verify.sql)
   — adds `verify_command`, `last_verified_at`, `last_verified_result` to
   `story`.
-- [`scripts/schema/003-tool-registry.sql`](../../scripts/schema/003-tool-registry.sql)
+- [`_harness/schema/003-tool-registry.sql`](../../_harness/schema/003-tool-registry.sql)
   — adds `tool`: the machine-readable registry of user-provided project tools.
-- [`scripts/schema/004-intervention.sql`](../../scripts/schema/004-intervention.sql)
+- [`_harness/schema/004-intervention.sql`](../../_harness/schema/004-intervention.sql)
   — adds `intervention`: review / human / CI / agent interventions, separated
   from normal traces.
 - [`crates/harness-cli/src/domain.rs`](../../crates/harness-cli/src/domain.rs) —

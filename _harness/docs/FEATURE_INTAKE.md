@@ -39,7 +39,7 @@ lane.
 | Change request      | Changing, fixing, or refining accepted behavior              | Story packet or direct patch                                |
 | New initiative      | Adding a larger product area that needs multiple stories     | Initiative notes plus story packets                         |
 | Maintenance request | Changing technical, operational, or dependency behavior      | Story packet, validation report, or decision                |
-| Harness improvement | Improving how humans and agents collaborate                  | Direct docs update or `scripts/bin/harness-cli backlog add` |
+| Harness improvement | Improving how humans and agents collaborate                  | Direct docs update or `_harness/bin/harness-cli backlog add` |
 
 Do not create or extend a monolithic spec by default after intake. Use product
 docs, stories, decisions, and initiative notes as the living surface.
@@ -72,12 +72,12 @@ Use for story-sized behavior with bounded blast radius.
 
 Requirements:
 
-- Create or update one story file from `docs/templates/story.md`.
+- Create or update one story file from `_harness/docs/templates/story.md`.
 - Link relevant product docs.
 - Add or update validation expectations.
 - Implement the smallest vertical slice when implementation exists.
-- Record or update proof status with `scripts/bin/harness-cli story add` and
-  `scripts/bin/harness-cli story update`.
+- Record or update proof status with `_harness/bin/harness-cli story add` and
+  `_harness/bin/harness-cli story update`.
 
 ### High-Risk
 
@@ -86,13 +86,13 @@ roles/platforms.
 
 Requirements:
 
-- Create a story folder using `docs/templates/high-risk-story/`.
+- Create a story folder using `_harness/docs/templates/high-risk-story/`.
 - Fill in `execplan.md`, `overview.md`, `design.md`, and `validation.md`.
 - Ask for human confirmation before implementation if direction is ambiguous.
 - Record a durable decision when behavior, architecture, authorization, data
   ownership, API shape, or validation requirements change meaningfully. Use a
-  `docs/decisions/NNNN-*.md` file from `docs/templates/decision.md`, then add or
-  refresh the durable row with `scripts/bin/harness-cli decision add`. Decision
+  `docs/decisions/NNNN-*.md` file from `_harness/docs/templates/decision.md`, then add or
+  refresh the durable row with `_harness/bin/harness-cli decision add`. Decision
   text in a trace is not a durable decision record.
 
 ## Risk Checklist

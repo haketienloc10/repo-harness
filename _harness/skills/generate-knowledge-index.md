@@ -16,19 +16,19 @@ phần sự thật.
 ## INPUT (đọc trước khi chạy)
 
 - `_harness/03-CLI_REFERENCE.md` mục `knowledge` để biết cú pháp.
-- `docs/GLOSSARY.md` + `README.md` (+ `docs/` nếu có) để soạn Purpose /
+- `_harness/docs/GLOSSARY.md` + `README.md` (+ `docs/` nếu có) để soạn Purpose /
   Concepts.
 - Index hiện tại nếu có: `docs/KNOWLEDGE_INDEX.md`.
 
 ## STEPS
 
-1. **SCAFFOLD:** chạy `scripts/bin/harness-cli knowledge scaffold`. Lệnh tạo/làm
+1. **SCAFFOLD:** chạy `_harness/bin/harness-cli knowledge scaffold`. Lệnh tạo/làm
    mới `docs/KNOWLEDGE_INDEX.md`: regenerate Key Technologies, How to Run,
    Top-Level Structure và Key Subdirectories; GIỮ NGUYÊN Purpose/Key Concepts và
    mô tả từng mục đã soạn. How to Run là tất định (rút từ manifest) — không soạn
    tay.
 2. **AUTHOR:** điền giữa các marker — `KNOWLEDGE:PURPOSE:*` (1–3 câu repo dùng
-   để làm gì) và `KNOWLEDGE:CONCEPTS:*` (thuật ngữ lõi, trỏ `docs/GLOSSARY.md`,
+   để làm gì) và `KNOWLEDGE:CONCEPTS:*` (thuật ngữ lõi, trỏ `_harness/docs/GLOSSARY.md`,
    KHÔNG nhân bản). Thay mọi `TODO: describe.` ở Top-Level Structure VÀ Key
    Subdirectories bằng mô tả 1 dòng.
 3. **FORMAT:** chạy `npx prettier --write docs/KNOWLEDGE_INDEX.md` (repo dùng
@@ -36,7 +36,7 @@ phần sự thật.
 
 ## VERIFY (bằng chứng cơ học)
 
-- `scripts/bin/harness-cli knowledge check` exit `0` (không thiếu mục, không
+- `_harness/bin/harness-cli knowledge check` exit `0` (không thiếu mục, không
   lệch cấu trúc so với cây thư mục hiện tại, không còn `TODO`).
 - `npx prettier --check docs/KNOWLEDGE_INDEX.md` pass.
 

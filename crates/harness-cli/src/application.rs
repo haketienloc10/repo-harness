@@ -473,7 +473,7 @@ mod tests {
                 "A demo repo.",
             )
             .replace(
-                "TODO: List the core concepts and terms an agent must know. See docs/GLOSSARY.md.",
+                "TODO: List the core concepts and terms an agent must know. See _harness/docs/GLOSSARY.md.",
                 "Core terms.",
             )
             .replace("`Cargo.toml` — TODO: describe.", "`Cargo.toml` — Manifest.")
@@ -513,7 +513,7 @@ mod tests {
                 "A demo repo.",
             )
             .replace(
-                "TODO: List the core concepts and terms an agent must know. See docs/GLOSSARY.md.",
+                "TODO: List the core concepts and terms an agent must know. See _harness/docs/GLOSSARY.md.",
                 "Core terms.",
             )
             .replace("`data/` — TODO: describe.", "`data/` — Data.")

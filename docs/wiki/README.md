@@ -30,11 +30,11 @@ flowchart TB
 
   subgraph durable["Durable layer (executable)"]
     cli["harness-cli\nRust CLI"]
-    schema["SQL schema\nscripts/schema/"]
+    schema["SQL schema\n_harness/schema/"]
     db[("harness.db\nSQLite")]
   end
 
-  dist["Distribution\ninstall.sh + scripts/bin"]
+  dist["Distribution\ninstall.sh + _harness/bin"]
 
   human --> harness
   harness --> skills
@@ -73,8 +73,8 @@ cargo clippy --all-targets
 prettier --check .
 
 # Use the prebuilt CLI in an installed repo
-scripts/bin/harness-cli init          # create harness.db
-scripts/bin/harness-cli query matrix  # show story proof status
+_harness/bin/harness-cli init          # create harness.db
+_harness/bin/harness-cli query matrix  # show story proof status
 ```
 
 See [Distribution](./distribution.md) for installing the harness into another

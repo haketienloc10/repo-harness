@@ -28,12 +28,12 @@ Stage-0..7 workflow.
 - `_harness/03-CLI_REFERENCE.md`: syntax for `query status`/`query recap`/
   `evidence add|list`/`done-check`/`trace --next-action`/`story update
   --next-action`.
-- `docs/CLI_REFERENCE.md`: deep semantics + examples per command.
-- `docs/TRACE_SPEC.md`: next_action enforcement by tier; evidence id in notes.
-- `docs/HARNESS_COMPONENTS.md`: Observability/Verification status + file
+- `_harness/docs/CLI_REFERENCE.md`: deep semantics + examples per command.
+- `_harness/docs/TRACE_SPEC.md`: next_action enforcement by tier; evidence id in notes.
+- `_harness/docs/HARNESS_COMPONENTS.md`: Observability/Verification status + file
   inventory updated.
 - `.gitignore`: `_harness/evidence/` added.
-- `docs/proposals/2026-06-17-read-model-evidence-upgrade.md` frozen (status note
+- `_harness/docs/proposals/2026-06-17-read-model-evidence-upgrade.md` frozen (status note
   pointing to the sliced stories).
 
 ## Design Notes
@@ -46,7 +46,7 @@ Stage-0..7 workflow.
 
 ## Validation
 
-`scripts/bin/harness-cli story update --id US-008 --unit 0 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-008 --unit 0 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                                          |
 | ----------- | ------------------------------------------------------- |

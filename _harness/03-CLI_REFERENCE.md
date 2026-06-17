@@ -1,13 +1,13 @@
 # Tra cứu lệnh Harness CLI (Cheatsheet)
 
 Trạng thái vận hành (intake, story, decision, backlog, trace) sống trong
-`harness.db`, thao tác qua `scripts/bin/harness-cli` (macOS/Linux) hoặc
-`scripts/bin/harness-cli.exe` (Windows) — dưới đây viết tắt `harness-cli`. KHÔNG
-sửa tay `harness.db`. Schema: `scripts/schema/`.
+`harness.db`, thao tác qua `_harness/bin/harness-cli` (macOS/Linux) hoặc
+`_harness/bin/harness-cli.exe` (Windows) — dưới đây viết tắt `harness-cli`. KHÔNG
+sửa tay `harness.db`. Schema: `_harness/schema/`.
 
 File này là CHEATSHEET (đủ cú pháp + quy ước cho mọi lệnh). Tra cứu thêm theo
 thứ tự: (1) flag đầy đủ của một lệnh → `harness-cli <cmd> --help`; (2) ngữ
-nghĩa, ví dụ, gotchas → `docs/CLI_REFERENCE.md` (on-demand, CHỈ đọc mục cần).
+nghĩa, ví dụ, gotchas → `_harness/docs/CLI_REFERENCE.md` (on-demand, CHỈ đọc mục cần).
 
 ## Quy ước giá trị
 
@@ -91,4 +91,4 @@ harness-cli query sql "<SQL>"              # SQL thô (đọc)
 - Decision đụng auth/authorization/data ownership/API shape/audit-security/
   validation: ghi Ở CẢ HAI nơi — file `docs/decisions/*.md` VÀ `decision add`.
   Trường `--decisions` của trace KHÔNG thay thế bản ghi durable.
-- Độ sâu trường trace theo tier (lane): xem `docs/TRACE_SPEC.md`.
+- Độ sâu trường trace theo tier (lane): xem `_harness/docs/TRACE_SPEC.md`.

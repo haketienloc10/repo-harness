@@ -48,20 +48,20 @@ state may still be manual or incomplete.
 Criteria:
 
 - `AGENTS.md` points agents to the Harness operating docs.
-- `docs/HARNESS.md`, `docs/FEATURE_INTAKE.md`, and `docs/ARCHITECTURE.md` exist.
-- Story, decision, and validation templates exist under `docs/templates/`.
-- `docs/TEST_MATRIX.md` defines proof columns and status meanings.
+- `_harness/docs/HARNESS.md`, `_harness/docs/FEATURE_INTAKE.md`, and `_harness/docs/ARCHITECTURE.md` exist.
+- Story, decision, and validation templates exist under `_harness/docs/templates/`.
+- `_harness/docs/TEST_MATRIX.md` defines proof columns and status meanings.
 
 Required files:
 
 - `AGENTS.md`
-- `docs/HARNESS.md`
-- `docs/FEATURE_INTAKE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/TEST_MATRIX.md`
-- `docs/templates/story.md`
-- `docs/templates/decision.md`
-- `docs/templates/validation-report.md`
+- `_harness/docs/HARNESS.md`
+- `_harness/docs/FEATURE_INTAKE.md`
+- `_harness/docs/ARCHITECTURE.md`
+- `_harness/docs/TEST_MATRIX.md`
+- `_harness/docs/templates/story.md`
+- `_harness/docs/templates/decision.md`
+- `_harness/docs/templates/validation-report.md`
 
 Benchmark indicators:
 
@@ -88,25 +88,25 @@ traces with predictable depth.
 
 Criteria:
 
-- `scripts/bin/harness-cli` can record intake, story, decision, backlog, and
+- `_harness/bin/harness-cli` can record intake, story, decision, backlog, and
   trace data in `harness.db`.
-- `scripts/schema/001-init.sql` defines durable tables for intake, story,
+- `_harness/schema/001-init.sql` defines durable tables for intake, story,
   decision, backlog, and trace records.
-- `docs/HARNESS_COMPONENTS.md` maps files and responsibilities.
-- `docs/HARNESS_MATURITY.md` defines H0-H5 with measurable criteria.
-- `docs/TRACE_SPEC.md` defines trace fields, quality tiers, and friction
+- `_harness/docs/HARNESS_COMPONENTS.md` maps files and responsibilities.
+- `_harness/docs/HARNESS_MATURITY.md` defines H0-H5 with measurable criteria.
+- `_harness/docs/TRACE_SPEC.md` defines trace fields, quality tiers, and friction
   capture.
-- `docs/CONTEXT_RULES.md` defines phase-by-lane context rules.
-- `AGENTS.md` and `docs/HARNESS.md` reference the Phase 2 operating docs.
+- `_harness/docs/CONTEXT_RULES.md` defines phase-by-lane context rules.
+- `AGENTS.md` and `_harness/docs/HARNESS.md` reference the Phase 2 operating docs.
 
 Required files:
 
-- `scripts/bin/harness-cli`
-- `scripts/schema/001-init.sql`
-- `docs/HARNESS_COMPONENTS.md`
-- `docs/HARNESS_MATURITY.md`
-- `docs/TRACE_SPEC.md`
-- `docs/CONTEXT_RULES.md`
+- `_harness/bin/harness-cli`
+- `_harness/schema/001-init.sql`
+- `_harness/docs/HARNESS_COMPONENTS.md`
+- `_harness/docs/HARNESS_MATURITY.md`
+- `_harness/docs/TRACE_SPEC.md`
+- `_harness/docs/CONTEXT_RULES.md`
 
 Benchmark indicators:
 
@@ -137,7 +137,7 @@ Criteria:
 
 - Trace quality can be scored by a repeatable command or benchmark step.
 - Harness friction can be grouped by component from
-  `docs/HARNESS_COMPONENTS.md`.
+  `_harness/docs/HARNESS_COMPONENTS.md`.
 - Backlog items include predicted impact and actual outcome after completion.
 - Benchmark comparison output identifies which harness responsibility moved or
   regressed.
@@ -159,7 +159,7 @@ Benchmark indicators:
 
 Current status:
 
-- Partially achieved by Phase 3. `scripts/bin/harness-cli score-trace` scores
+- Partially achieved by Phase 3. `_harness/bin/harness-cli score-trace` scores
   trace quality against tier rules, `query friction` includes linked intake
   context, the `trace` command now prints that score at write time, and the
   backlog outcome loop documents predicted impact versus actual outcome. Full H3
@@ -203,10 +203,10 @@ Benchmark indicators:
 
 Current status:
 
-- Achieved by Phase 5. `scripts/bin/harness-cli story verify <id>` runs
+- Achieved by Phase 5. `_harness/bin/harness-cli story verify <id>` runs
   story-level proof commands, records pass/fail state, `trace --story` warns
   before close when verification has not passed, and
-  `scripts/bin/harness-cli story verify-all` runs all configured story proof
+  `_harness/bin/harness-cli story verify-all` runs all configured story proof
   commands in one pass. Proof-column automation remains a future enhancement,
   but H4's required automated verification gate is now present.
 
@@ -248,10 +248,10 @@ Benchmark indicators:
 
 Current status:
 
-- Partially achieved by Phase 5. `scripts/bin/harness-cli audit` detects
-  durable-state drift, `scripts/bin/harness-cli propose` generates structured
+- Partially achieved by Phase 5. `_harness/bin/harness-cli audit` detects
+  durable-state drift, `_harness/bin/harness-cli propose` generates structured
   improvement proposals from friction, interventions, and audit results, and
-  `docs/IMPROVEMENT_PROTOCOL.md` defines the review loop. H5 is not fully
+  `_harness/docs/IMPROVEMENT_PROTOCOL.md` defines the review loop. H5 is not fully
   achieved until repeated benchmark outcomes prove proposed improvements create
   measurable positive deltas or are explicitly reverted.
 
@@ -267,11 +267,11 @@ Activated responsibilities:
 | Level | Status   | Evidence                                                                                                                                                                                                                 |
 | ----- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | H0    | Passed   | Harness docs, templates, and durable records exist.                                                                                                                                                                      |
-| H1    | Achieved | `AGENTS.md`, `docs/HARNESS.md`, `docs/FEATURE_INTAKE.md`, `docs/ARCHITECTURE.md`, `docs/templates/*`, and `docs/TEST_MATRIX.md` exist.                                                                                   |
-| H2    | Achieved | `scripts/bin/harness-cli`, `scripts/schema/001-init.sql`, durable story records, `docs/HARNESS_COMPONENTS.md`, `docs/HARNESS_MATURITY.md`, `docs/TRACE_SPEC.md`, and `docs/CONTEXT_RULES.md` define the Phase 2 surface. |
-| H3    | Partial  | Phase 3 adds `scripts/bin/harness-cli score-trace`, enriched friction context, and the backlog outcome loop; Phase 4 auto-scores traces on write. Component-level benchmark attribution remains open.                    |
+| H1    | Achieved | `AGENTS.md`, `_harness/docs/HARNESS.md`, `_harness/docs/FEATURE_INTAKE.md`, `_harness/docs/ARCHITECTURE.md`, `_harness/docs/templates/*`, and `_harness/docs/TEST_MATRIX.md` exist.                                                                                   |
+| H2    | Achieved | `_harness/bin/harness-cli`, `_harness/schema/001-init.sql`, durable story records, `_harness/docs/HARNESS_COMPONENTS.md`, `_harness/docs/HARNESS_MATURITY.md`, `_harness/docs/TRACE_SPEC.md`, and `_harness/docs/CONTEXT_RULES.md` define the Phase 2 surface. |
+| H3    | Partial  | Phase 3 adds `_harness/bin/harness-cli score-trace`, enriched friction context, and the backlog outcome loop; Phase 4 auto-scores traces on write. Component-level benchmark attribution remains open.                    |
 | H4    | Achieved | Phase 4 adds story-level `verify_command`, `story verify`, and trace-time verification warnings. Phase 5 adds `story verify-all` for batch story proof.                                                                  |
-| H5    | Partial  | Phase 5 adds `audit`, `score-context`, `intervention add/query`, `propose`, `docs/HARNESS_AUDIT.md`, and `docs/IMPROVEMENT_PROTOCOL.md`; repeated benchmark outcome proof remains open.                                  |
+| H5    | Partial  | Phase 5 adds `audit`, `score-context`, `intervention add/query`, `propose`, `_harness/docs/HARNESS_AUDIT.md`, and `_harness/docs/IMPROVEMENT_PROTOCOL.md`; repeated benchmark outcome proof remains open.                                  |
 
 ## Responsibility Activation
 

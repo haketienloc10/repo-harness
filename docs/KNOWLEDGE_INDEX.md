@@ -63,24 +63,24 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 - `docs/decisions/` — Architecture Decision Records (ADRs); the inherited
   decision log read before changing contracts.
 - `docs/product/` — Product specifications and contracts that stories implement.
-- `docs/proposals/` — Input-material design proposals; sliced into
+- `_harness/docs/proposals/` — Input-material design proposals; sliced into
   stories/decisions, then frozen as design records.
 - `docs/stories/` — Story packets grouped under `epics/`; each story is the
   product contract for one change.
-- `docs/templates/` — Authoring templates for decisions, stories, spec intake,
+- `_harness/docs/templates/` — Authoring templates for decisions, stories, spec intake,
   and validation reports.
 - `docs/wiki/` — Generated DeepWiki: one page per major component (agent
   harness, CLI, data model, distribution, docs, skills), each linking back to
   source.
-- `scripts/bin/` — Prebuilt `harness-cli` binary shipped into installed repos.
-- `scripts/schema/` — SQLite schema and migrations for the durable layer
+- `_harness/bin/` — Prebuilt `harness-cli` binary shipped into installed repos.
+- `_harness/schema/` — SQLite schema and migrations for the durable layer
   (`harness.db`).
 
 ## Key Concepts
 
 <!-- KNOWLEDGE:CONCEPTS:BEGIN -->
 
-See `docs/GLOSSARY.md` for full definitions. Core terms:
+See `_harness/docs/GLOSSARY.md` for full definitions. Core terms:
 
 - **Harness Workflow** — 7-stage gated process from intake to growth.
 - **Lane** — risk-based context budget: tiny, normal, or high-risk.

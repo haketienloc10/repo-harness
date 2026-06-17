@@ -5,26 +5,26 @@ This directory contains harness automation tools.
 ## Harness CLI
 
 The Rust Harness CLI is the primary interface for the durable layer. Installed
-projects use the prebuilt binary at `scripts/bin/harness-cli` on macOS/Linux or
-`scripts/bin/harness-cli.exe` on Windows for normal Harness work.
+projects use the prebuilt binary at `_harness/bin/harness-cli` on macOS/Linux or
+`_harness/bin/harness-cli.exe` on Windows for normal Harness work.
 
 ```bash
-scripts/bin/harness-cli init          # Create the database
-scripts/bin/harness-cli intake ...    # Record a feature intake classification
-scripts/bin/harness-cli story ...     # Add or update a story (test matrix row)
-scripts/bin/harness-cli story update --id US-001 --unit 1 --integration 1 --e2e 0 --platform 0
-scripts/bin/harness-cli story verify US-001  # Run the story's verify_command
-scripts/bin/harness-cli decision ...  # Add a decision or run its verification
-scripts/bin/harness-cli backlog ...   # Add or close a backlog item
-scripts/bin/harness-cli trace ...     # Record and auto-score an agent execution trace
-scripts/bin/harness-cli score-trace   # Score a trace against TRACE_SPEC.md tiers
-scripts/bin/harness-cli query ...     # Query harness data, including backlog --open/--closed
-scripts/bin/harness-cli query matrix --numeric  # Show proof flags as 1/0
-scripts/bin/harness-cli migrate       # Apply pending schema migrations
-scripts/bin/harness-cli --version     # Print the installed CLI version
+_harness/bin/harness-cli init          # Create the database
+_harness/bin/harness-cli intake ...    # Record a feature intake classification
+_harness/bin/harness-cli story ...     # Add or update a story (test matrix row)
+_harness/bin/harness-cli story update --id US-001 --unit 1 --integration 1 --e2e 0 --platform 0
+_harness/bin/harness-cli story verify US-001  # Run the story's verify_command
+_harness/bin/harness-cli decision ...  # Add a decision or run its verification
+_harness/bin/harness-cli backlog ...   # Add or close a backlog item
+_harness/bin/harness-cli trace ...     # Record and auto-score an agent execution trace
+_harness/bin/harness-cli score-trace   # Score a trace against TRACE_SPEC.md tiers
+_harness/bin/harness-cli query ...     # Query harness data, including backlog --open/--closed
+_harness/bin/harness-cli query matrix --numeric  # Show proof flags as 1/0
+_harness/bin/harness-cli migrate       # Apply pending schema migrations
+_harness/bin/harness-cli --version     # Print the installed CLI version
 ```
 
-Run `scripts/bin/harness-cli help` or `scripts/bin/harness-cli query help` for
+Run `_harness/bin/harness-cli help` or `_harness/bin/harness-cli query help` for
 full usage. On Windows, use the same commands through
 `.\scripts\bin\harness-cli.exe`.
 
@@ -38,11 +38,11 @@ or `high-risk`. Use `tiny` instead of `low`. `query matrix` defaults to
 human-readable `yes`/`no`; use `query matrix --numeric` when copying values into
 `story update`.
 
-The schema lives in `scripts/schema/` and is version-controlled. The database
+The schema lives in `_harness/schema/` and is version-controlled. The database
 file (`harness.db`) is `.gitignore`d.
 
-Requires: the prebuilt Rust CLI at `scripts/bin/harness-cli` on macOS/Linux or
-`scripts/bin/harness-cli.exe` on Windows.
+Requires: the prebuilt Rust CLI at `_harness/bin/harness-cli` on macOS/Linux or
+`_harness/bin/harness-cli.exe` on Windows.
 
 Direct database inspection may still use SQLite tools, but normal Harness use
 should go through the Rust CLI.
@@ -52,32 +52,32 @@ should go through the Rust CLI.
 Current migrated commands:
 
 ```bash
-scripts/bin/harness-cli init
-scripts/bin/harness-cli migrate
-scripts/bin/harness-cli import brownfield
-scripts/bin/harness-cli intake ...
-scripts/bin/harness-cli story add ...
-scripts/bin/harness-cli story update ...
-scripts/bin/harness-cli story verify ...
-scripts/bin/harness-cli decision add ...
-scripts/bin/harness-cli decision verify ...
-scripts/bin/harness-cli backlog add ...
-scripts/bin/harness-cli backlog close ...
-scripts/bin/harness-cli trace ...
-scripts/bin/harness-cli score-trace
-scripts/bin/harness-cli query matrix
-scripts/bin/harness-cli query backlog
-scripts/bin/harness-cli query decisions
-scripts/bin/harness-cli query intakes
-scripts/bin/harness-cli query traces
-scripts/bin/harness-cli query friction
-scripts/bin/harness-cli query stats
-scripts/bin/harness-cli query sql ...
+_harness/bin/harness-cli init
+_harness/bin/harness-cli migrate
+_harness/bin/harness-cli import brownfield
+_harness/bin/harness-cli intake ...
+_harness/bin/harness-cli story add ...
+_harness/bin/harness-cli story update ...
+_harness/bin/harness-cli story verify ...
+_harness/bin/harness-cli decision add ...
+_harness/bin/harness-cli decision verify ...
+_harness/bin/harness-cli backlog add ...
+_harness/bin/harness-cli backlog close ...
+_harness/bin/harness-cli trace ...
+_harness/bin/harness-cli score-trace
+_harness/bin/harness-cli query matrix
+_harness/bin/harness-cli query backlog
+_harness/bin/harness-cli query decisions
+_harness/bin/harness-cli query intakes
+_harness/bin/harness-cli query traces
+_harness/bin/harness-cli query friction
+_harness/bin/harness-cli query stats
+_harness/bin/harness-cli query sql ...
 ```
 
-`scripts/bin/harness-cli import brownfield` seeds or refreshes the durable
-database from existing Harness v0 markdown in `docs/TEST_MATRIX.md`,
-`docs/decisions/`, and `docs/HARNESS_BACKLOG.md`. This keeps already-installed
+`_harness/bin/harness-cli import brownfield` seeds or refreshes the durable
+database from existing Harness v0 markdown in `_harness/docs/TEST_MATRIX.md`,
+`docs/decisions/`, and `_harness/docs/HARNESS_BACKLOG.md`. This keeps already-installed
 Harness repos on the Rust CLI path without losing their populated operating
 docs.
 
@@ -131,8 +131,8 @@ validation commands. The installer script is not part of the installed project
 payload.
 
 By default the installer also downloads the prebuilt Rust Harness CLI for the
-current platform into `scripts/bin/harness-cli` on macOS/Linux or
-`scripts/bin/harness-cli.exe` on Windows, then verifies its `.sha256` checksum.
+current platform into `_harness/bin/harness-cli` on macOS/Linux or
+`_harness/bin/harness-cli.exe` on Windows, then verifies its `.sha256` checksum.
 A source branch can pin the release used by the installer through
 `scripts/harness-cli-release-tag`; Phase 3 pins `harness-cli-v0.1.4` so branch
 installs receive a Phase 3-built CLI. Set `HARNESS_CLI_RELEASE_TAG` to override
@@ -142,9 +142,9 @@ directory, such as a local `file:///.../dist` directory created by
 
 ## Schema Migrations
 
-Migration files live under `scripts/schema/` and are named `NNN-description.sql`
+Migration files live under `_harness/schema/` and are named `NNN-description.sql`
 where `NNN` is a zero-padded version number. Run
-`scripts/bin/harness-cli migrate` to apply pending migrations.
+`_harness/bin/harness-cli migrate` to apply pending migrations.
 
 ## Future Command Contract
 

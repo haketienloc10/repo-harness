@@ -10,7 +10,7 @@ gitignored.
 
 In scope:
 
-- `scripts/schema/007-evidence.sql` (table + keep-last index + schema_version 7).
+- `_harness/schema/007-evidence.sql` (table + keep-last index + schema_version 7).
 - `evidence add --kind --path [--story --trace --command --source --notes]`:
   hash, digest, copy-to-store, insert pointer.
 - `evidence list [--story --trace --kind --json]`.

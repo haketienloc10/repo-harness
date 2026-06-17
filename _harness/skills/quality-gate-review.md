@@ -16,7 +16,7 @@ Chạy 1 vòng review độc lập 3 lens rồi GATE. Self-check nội tuyến G
 - Story packet (`execplan.md`/`design.md` + Validation) + intake (Lane / Hard
   Gates đã đếm GĐ1).
 - 11 Responsibilities (danh sách ở `01-WORKFLOW.md` GĐ5; mô tả sâu
-  `docs/HARNESS_COMPONENTS.md`) để quy gán finding.
+  `_harness/docs/HARNESS_COMPONENTS.md`) để quy gán finding.
 
 ## STEPS
 

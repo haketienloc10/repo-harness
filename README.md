@@ -44,7 +44,7 @@ song, phục vụ hai đối tượng khác nhau:
   (cú pháp CLI).
 - **Luồng Người đọc (`docs/`)** — tài liệu tham chiếu sâu: chính sách, lý do,
   taxonomy, maturity, glossary. Dành cho con người và khi cần tra cứu chi tiết.
-  Bắt đầu ở `docs/README.md` và `docs/HARNESS.md`.
+  Bắt đầu ở `_harness/docs/README.md` và `_harness/docs/HARNESS.md`.
 
 Nếu bạn là **con người (Developer)**, README này là điểm xuất phát để hiểu cách
 phối hợp với Agent. Nếu bạn là **Agent**, hãy đọc `_harness/00-AGENTS.md` và
@@ -102,14 +102,14 @@ Chính sách và cách làm việc được viết ở các file Markdown.
 Nhưng dữ liệu vận hành thực tế (Tiến độ Story, Lịch sử Trace, Backlog) **được lưu trong cơ sở dữ liệu SQLite cục bộ**.
 Hãy sử dụng CLI do dự án cung cấp:
 
-* macOS/Linux: `scripts/bin/harness-cli`
-* Windows: `scripts/bin/harness-cli.exe`
+* macOS/Linux: `_harness/bin/harness-cli`
+* Windows: `_harness/bin/harness-cli.exe`
 
 Ví dụ để kiểm tra trạng thái tiến độ chung, hãy chạy:
-`scripts/bin/harness-cli query matrix`
+`_harness/bin/harness-cli query matrix`
 
 Cú pháp mọi lệnh nằm ở `_harness/03-CLI_REFERENCE.md` (cheatsheet); ngữ nghĩa
-và ví dụ đầy đủ ở `docs/CLI_REFERENCE.md`.
+và ví dụ đầy đủ ở `_harness/docs/CLI_REFERENCE.md`.
 
 ## 3. Hệ thống Trace (Ghi vết)
 
@@ -122,7 +122,7 @@ sách phân tách bằng dấu phẩy (KHÔNG dùng mảng JSON) và ghi nhận 
 lỗi/điểm nghẽn:
 
 ```bash
-scripts/bin/harness-cli trace \
+_harness/bin/harness-cli trace \
   --summary "Completed high-risk auth role migration with audit proof" \
   --intake 51 \
   --story US-014 \
@@ -144,7 +144,7 @@ scripts/bin/harness-cli trace \
 Trace này vô giá trị cho việc đo lường và bàn giao:
 
 ```bash
-scripts/bin/harness-cli trace \
+_harness/bin/harness-cli trace \
   --summary "did phase 2" \
   --outcome completed
 

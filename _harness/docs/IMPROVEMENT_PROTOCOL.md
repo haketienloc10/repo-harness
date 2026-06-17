@@ -14,7 +14,7 @@ friction + interventions + audit findings
 ## Generate Proposals
 
 ```bash
-scripts/bin/harness-cli propose
+_harness/bin/harness-cli propose
 ```
 
 The command is rule-based. It looks for:
@@ -29,13 +29,13 @@ suggested action, validation plan, and confidence.
 ## Commit Proposals
 
 ```bash
-scripts/bin/harness-cli propose --commit
+_harness/bin/harness-cli propose --commit
 ```
 
 Committed proposals become `proposed` backlog items. Humans review them with:
 
 ```bash
-scripts/bin/harness-cli query backlog --open
+_harness/bin/harness-cli query backlog --open
 ```
 
 ## Review Rules
@@ -51,7 +51,7 @@ scripts/bin/harness-cli query backlog --open
 
 After implementation, compare the predicted impact with:
 
-- `scripts/bin/harness-cli audit`,
-- `scripts/bin/harness-cli query friction`,
-- `scripts/bin/harness-cli query interventions`,
+- `_harness/bin/harness-cli audit`,
+- `_harness/bin/harness-cli query friction`,
+- `_harness/bin/harness-cli query interventions`,
 - benchmark trace quality and harness compliance when benchmark proof applies.

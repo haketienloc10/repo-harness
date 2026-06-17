@@ -26,8 +26,8 @@ list` must round-trip what `add` wrote.
 ## Commands
 
 ```text
-scripts/bin/harness-cli evidence add --kind log --path /tmp/sample.log --story US-003
-scripts/bin/harness-cli evidence list --story US-003 --json
+_harness/bin/harness-cli evidence add --kind log --path /tmp/sample.log --story US-003
+_harness/bin/harness-cli evidence list --story US-003 --json
 cargo test -p harness-cli
 ```
 

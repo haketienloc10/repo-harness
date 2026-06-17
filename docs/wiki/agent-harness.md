@@ -21,7 +21,7 @@ via [`AGENTS.md`](../../AGENTS.md); humans use the deeper reference under
 - [`_harness/03-CLI_REFERENCE.md`](../../_harness/03-CLI_REFERENCE.md) —
   always-loadable `harness-cli` cheatsheet (value conventions + one-line syntax
   per command); the full reference lives at
-  [`docs/CLI_REFERENCE.md`](../CLI_REFERENCE.md).
+  [`_harness/docs/CLI_REFERENCE.md`](../CLI_REFERENCE.md).
 - [`_harness/04-SKILLS.md`](../../_harness/04-SKILLS.md) — the skill contract
   and trigger → skill-file registry.
 - [`_harness/skills/`](../../_harness/skills) — the harness skill procedures

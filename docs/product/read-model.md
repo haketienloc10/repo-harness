@@ -4,7 +4,7 @@ The product contract for the agent-facing **read-path** of the harness: how an
 agent (or a fresh session) answers _what has been done / what is in progress /
 what needs doing_, with **evidence and artifacts** backing every claim.
 
-Derived from `docs/proposals/2026-06-17-read-model-evidence-upgrade.md` (frozen
+Derived from `_harness/docs/proposals/2026-06-17-read-model-evidence-upgrade.md` (frozen
 design record after slicing).
 
 ## Why this layer exists

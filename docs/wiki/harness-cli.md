@@ -42,7 +42,7 @@ flowchart TD
   svc -. "uses types" .-> dom
   repo -. "uses types" .-> dom
   repo --> db[("harness.db")]
-  repo --> schema["scripts/schema/*.sql"]
+  repo --> schema["_harness/schema/*.sql"]
   repo --> fs["docs/KNOWLEDGE_INDEX.md"]
 ```
 
@@ -61,7 +61,7 @@ Top-level subcommands (the `Command` enum in
 | Command                         | Purpose                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `init`                          | Create `harness.db` if missing; apply schema version 1.                                                                  |
-| `migrate`                       | Apply pending schema migrations from `scripts/schema/`.                                                                  |
+| `migrate`                       | Apply pending schema migrations from `_harness/schema/`.                                                                  |
 | `import brownfield`             | Seed the DB from existing `TEST_MATRIX`, decisions, and backlog Markdown.                                                |
 | `intake`                        | Record a feature-intake classification (`--type`, `--summary`, `--lane`).                                                |
 | `story add/update/verify(-all)` | Add a story, update its status and proof flags (unit/integration/e2e/platform), or run its configured verify command.    |
@@ -79,7 +79,7 @@ Top-level subcommands (the `Command` enum in
 Resolution of paths is environment-driven:
 [`resolve_context`](../../crates/harness-cli/src/interface.rs#L957-L970) honors
 `HARNESS_REPO_ROOT` and `HARNESS_DB`, defaulting the database to
-`<repo_root>/harness.db` and schema to `<repo_root>/scripts/schema`.
+`<repo_root>/harness.db` and schema to `<repo_root>/_harness/schema`.
 
 The persistence contract is the
 [`HarnessRepository` trait](../../crates/harness-cli/src/infrastructure.rs#L65-L97),

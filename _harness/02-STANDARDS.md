@@ -38,7 +38,7 @@ layers.
 > Chi tiết sâu (on-demand): danh sách đầy đủ boundary inputs phải parse
 > (identity claims, signed URLs/token, shell payloads…), target flow
 > `unknown input → parser → typed DTO → use case → domain object`, và cây
-> Candidate Structure xem `docs/ARCHITECTURE.md`.
+> Candidate Structure xem `_harness/docs/ARCHITECTURE.md`.
 
 ## 2. MA TRẬN KIỂM THỬ (TEST MATRIX)
 

@@ -46,7 +46,7 @@ is the live pointer; `trace.next_action` is the immutable record at trace time.
 
 ## Validation
 
-`scripts/bin/harness-cli story update --id US-002 --unit 1 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-002 --unit 1 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                                              |
 | ----------- | ----------------------------------------------------------- |
@@ -58,7 +58,7 @@ is the live pointer; `trace.next_action` is the immutable record at trace time.
 
 ## Harness Delta
 
-Adds resume continuity; `docs/TRACE_SPEC.md` tier rules updated in US-008.
+Adds resume continuity; `_harness/docs/TRACE_SPEC.md` tier rules updated in US-008.
 
 ## Evidence
 

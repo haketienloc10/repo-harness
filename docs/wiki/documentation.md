@@ -7,33 +7,33 @@ policies, rationale, taxonomy, glossary, decisions, stories, and templates. It
 is the deep counterpart to the agent-facing [Agent Harness](./agent-harness.md):
 where `_harness/` tells an agent _what to do_, `docs/` explains _why_ and stores
 the durable narrative artifacts. It begins at
-[`docs/README.md`](../../docs/README.md).
+[`_harness/docs/README.md`](../../_harness/docs/README.md).
 
 > Note: `docs/wiki/` (this DeepWiki) is generated and lives alongside the
 > reference docs but is not part of the harness contract.
 
 ## Key files
 
-- [`docs/HARNESS.md`](../../docs/HARNESS.md) — how humans and agents
+- [`_harness/docs/HARNESS.md`](../../_harness/docs/HARNESS.md) — how humans and agents
   collaborate.
-- [`docs/FEATURE_INTAKE.md`](../../docs/FEATURE_INTAKE.md) — how prompts become
+- [`_harness/docs/FEATURE_INTAKE.md`](../../_harness/docs/FEATURE_INTAKE.md) — how prompts become
   tiny / normal / high-risk work.
-- [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) — architecture discovery
+- [`_harness/docs/ARCHITECTURE.md`](../../_harness/docs/ARCHITECTURE.md) — architecture discovery
   and boundary rules.
-- [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md) — shared vocabulary.
-- [`docs/CONTEXT_RULES.md`](../../docs/CONTEXT_RULES.md) — what to read, when,
+- [`_harness/docs/GLOSSARY.md`](../../_harness/docs/GLOSSARY.md) — shared vocabulary.
+- [`_harness/docs/CONTEXT_RULES.md`](../../_harness/docs/CONTEXT_RULES.md) — what to read, when,
   and when to stop.
 - [`docs/KNOWLEDGE_INDEX.md`](../../docs/KNOWLEDGE_INDEX.md) — the onboarding
   router (generated/maintained by the knowledge skill).
-- [`docs/CLI_REFERENCE.md`](../../docs/CLI_REFERENCE.md) — the full
+- [`_harness/docs/CLI_REFERENCE.md`](../../_harness/docs/CLI_REFERENCE.md) — the full
   `harness-cli` reference (the cheatsheet lives in
   `_harness/03-CLI_REFERENCE.md`).
-- [`docs/TRACE_SPEC.md`](../../docs/TRACE_SPEC.md) /
-  [`TOOL_REGISTRY.md`](../../docs/TOOL_REGISTRY.md) /
-  [`IMPROVEMENT_PROTOCOL.md`](../../docs/IMPROVEMENT_PROTOCOL.md) — specs for
+- [`_harness/docs/TRACE_SPEC.md`](../../_harness/docs/TRACE_SPEC.md) /
+  [`TOOL_REGISTRY.md`](../../_harness/docs/TOOL_REGISTRY.md) /
+  [`IMPROVEMENT_PROTOCOL.md`](../../_harness/docs/IMPROVEMENT_PROTOCOL.md) — specs for
   traces, the tool registry, and the audit/propose improvement loop.
-- [`docs/HARNESS_COMPONENTS.md`](../../docs/HARNESS_COMPONENTS.md) /
-  [`HARNESS_MATURITY.md`](../../docs/HARNESS_MATURITY.md) — responsibility
+- [`_harness/docs/HARNESS_COMPONENTS.md`](../../_harness/docs/HARNESS_COMPONENTS.md) /
+  [`HARNESS_MATURITY.md`](../../_harness/docs/HARNESS_MATURITY.md) — responsibility
   taxonomy and maturity tracking.
 
 ## Internals
@@ -61,7 +61,7 @@ created as work happens.
 - The [Agent Harness](./agent-harness.md) hierarchy points here:
   `docs/product/*` and `docs/stories/*` are authoritative product truth,
   `docs/decisions/*` are inherited tradeoffs.
-- [`docs/templates/`](../../docs/templates) provides the canonical shapes for
+- [`_harness/docs/templates/`](../../_harness/docs/templates) provides the canonical shapes for
   stories, decisions, spec intake, and validation reports — including the
   `high-risk-story/` packet (overview, execplan, design, validation).
 - `docs/KNOWLEDGE_INDEX.md` is the read-first orientation map for every lane.

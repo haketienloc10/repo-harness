@@ -40,7 +40,7 @@ count/group rollup.
 
 ## Validation
 
-`scripts/bin/harness-cli story update --id US-006 --unit 1 --integration 1 --e2e 0 --platform 0`.
+`_harness/bin/harness-cli story update --id US-006 --unit 1 --integration 1 --e2e 0 --platform 0`.
 
 | Layer       | Expected proof                                       |
 | ----------- | ---------------------------------------------------- |

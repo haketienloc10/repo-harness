@@ -24,13 +24,13 @@ deterministic sections.
    content):
 
    ```bash
-   scripts/bin/harness-cli knowledge scaffold
+   _harness/bin/harness-cli knowledge scaffold
    ```
 
 2. **Author** the semantic parts in `docs/KNOWLEDGE_INDEX.md`:
    - `Purpose` — between `KNOWLEDGE:PURPOSE:BEGIN/END` (1–3 sentences).
    - `Key Concepts` — between `KNOWLEDGE:CONCEPTS:BEGIN/END`; reference
-     `docs/GLOSSARY.md`, don't duplicate it.
+     `_harness/docs/GLOSSARY.md`, don't duplicate it.
    - Replace each `TODO: describe.` in **Top-Level Structure** with a one-line
      description.
 
@@ -43,7 +43,7 @@ deterministic sections.
 4. **Verify** — the mechanical gate. Must exit `0`:
 
    ```bash
-   scripts/bin/harness-cli knowledge check
+   _harness/bin/harness-cli knowledge check
    ```
 
 ## Done when

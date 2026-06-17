@@ -1233,9 +1233,9 @@ fn resolve_context() -> Result<HarnessContext, InterfaceError> {
     let repo_root = resolve_repo_root()?;
     let db_path = env::var_os("HARNESS_DB")
         .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("harness.db"));
+        .unwrap_or_else(|| repo_root.join("_harness/harness.db"));
 
-    let schema_dir = repo_root.join("scripts/schema");
+    let schema_dir = repo_root.join("_harness/schema");
 
     Ok(HarnessContext {
         repo_root,
