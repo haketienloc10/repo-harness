@@ -161,3 +161,24 @@ From a target project directory, run:
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/haketienloc10/repo-harness/main/install.sh?$(date +%s)" | bash
 ```
+
+Trình cài là **non-destructive**: nó nâng cấp mọi thứ trong `_harness/` nhưng
+KHÔNG ghi đè workspace sẵn có của bạn (`docs/decisions`, `docs/stories`,
+`docs/product`, `docs/wiki`, `docs/KNOWLEDGE_INDEX.md`) và nhúng block Harness
+vào `AGENTS.md` của repo đích.
+
+## Migrate An Existing Install (cấu trúc cũ → `_harness/`)
+
+Các bản cài cũ rải hạ tầng ra nhiều nơi: binary ở `scripts/bin/`, schema ở
+`scripts/schema/`, `harness.db` ở gốc repo, và tài liệu khung lẫn trong `docs/`.
+Bản mới gom TẤT CẢ vào MỘT thư mục `_harness/`. Để di trú một repo đã cài theo
+cấu trúc cũ, từ gốc repo (cây git phải sạch) chạy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/haketienloc10/repo-harness/main/migrate.sh | bash
+```
+
+`migrate.sh` sẽ: dời `harness.db` vào `_harness/`, cài đè engine mới, bảo toàn
+nội dung riêng của repo (`TEST_MATRIX.md`, `proposals/`), gỡ bản sao hạ tầng cũ,
+sửa đường dẫn "sống" trong DB và scaffold lại `docs/KNOWLEDGE_INDEX.md`. Lịch sử
+trace/evidence được giữ nguyên. Sau khi chạy, soát `git diff` rồi commit.
