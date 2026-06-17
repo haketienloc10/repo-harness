@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use crate::domain::knowledge;
 use crate::domain::{
     AuditResult, BacklogFilter, BacklogRecord, BoolFlag, ContextScoreResult, CsvList,
-    DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal, InputType, IntakeRecord,
-    InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult, StoryVerifyStatus,
-    ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
+    DecisionRecord, DoneCheckReport, FrictionRecord, HarnessStats, ImprovementProposal, InputType,
+    IntakeRecord, InterventionRecord, RecapFilter, RecapReport, RiskLane, StatusFilter,
+    StatusReport, StoryMatrixRecord, StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec,
+    ToolEntry, TraceRecord, TraceScoreResult,
 };
 use crate::infrastructure::{
     HarnessRepository, KnowledgeWorkspace, SqliteHarnessRepository, ToolCheckResult,
@@ -49,6 +50,7 @@ pub struct StoryUpdateInput {
     pub e2e: Option<BoolFlag>,
     pub platform: Option<BoolFlag>,
     pub verify_command: Option<String>,
+    pub next_action: Option<String>,
 }
 
 #[derive(Debug)]
@@ -104,6 +106,34 @@ pub struct InterventionFilter {
 }
 
 #[derive(Debug)]
+pub struct EvidenceAddInput {
+    pub kind: String,
+    pub path: String,
+    pub story_id: Option<String>,
+    pub trace_id: Option<i64>,
+    pub command: Option<String>,
+    pub source: String,
+    pub result: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct EvidenceFilter {
+    pub story_id: Option<String>,
+    pub trace_id: Option<i64>,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct EvidenceAddResult {
+    pub id: i64,
+    pub path: String,
+    pub sha256: String,
+    pub bytes: i64,
+    pub deduped: bool,
+}
+
+#[derive(Debug)]
 pub struct BacklogCloseInput {
     pub id: i64,
     pub status: String,
@@ -121,6 +151,7 @@ pub struct TraceInput {
     pub token_estimate: Option<i64>,
     pub friction: Option<String>,
     pub notes: Option<String>,
+    pub next_action: Option<String>,
     pub actions: CsvList,
     pub files_read: CsvList,
     pub files_changed: CsvList,
@@ -167,8 +198,12 @@ impl HarnessService {
         self.repository.update_story(input)
     }
 
-    pub fn verify_story(&self, id: &str) -> crate::infrastructure::Result<StoryVerifyResult> {
-        self.repository.verify_story(id)
+    pub fn verify_story(
+        &self,
+        id: &str,
+        capture: bool,
+    ) -> crate::infrastructure::Result<StoryVerifyResult> {
+        self.repository.verify_story(id, capture)
     }
 
     pub fn verify_all_stories(&self) -> crate::infrastructure::Result<StoryVerifyAllResult> {
@@ -215,6 +250,20 @@ impl HarnessService {
 
     pub fn record_trace(&self, input: TraceInput) -> crate::infrastructure::Result<i64> {
         self.repository.record_trace(input)
+    }
+
+    pub fn add_evidence(
+        &self,
+        input: EvidenceAddInput,
+    ) -> crate::infrastructure::Result<EvidenceAddResult> {
+        self.repository.add_evidence(input)
+    }
+
+    pub fn list_evidence(
+        &self,
+        filter: EvidenceFilter,
+    ) -> crate::infrastructure::Result<Vec<crate::domain::EvidenceRecord>> {
+        self.repository.list_evidence(filter)
     }
 
     pub fn score_trace(&self, id: Option<i64>) -> crate::infrastructure::Result<TraceScoreResult> {
@@ -276,6 +325,25 @@ impl HarnessService {
 
     pub fn query_stats(&self) -> crate::infrastructure::Result<HarnessStats> {
         self.repository.query_stats()
+    }
+
+    pub fn query_status(
+        &self,
+        filter: StatusFilter,
+    ) -> crate::infrastructure::Result<StatusReport> {
+        self.repository.query_status(filter)
+    }
+
+    pub fn query_recap(&self, filter: RecapFilter) -> crate::infrastructure::Result<RecapReport> {
+        self.repository.query_recap(filter)
+    }
+
+    pub fn done_check(
+        &self,
+        story_id: Option<String>,
+        intake_id: Option<i64>,
+    ) -> crate::infrastructure::Result<DoneCheckReport> {
+        self.repository.done_check(story_id, intake_id)
     }
 
     pub fn audit(&self) -> crate::infrastructure::Result<AuditResult> {
@@ -365,6 +433,7 @@ pub struct StoryVerifyResult {
     pub stdout: String,
     pub stderr: String,
     pub result: String,
+    pub evidence_id: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

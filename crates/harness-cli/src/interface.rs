@@ -6,18 +6,20 @@ use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 
 use crate::application::{
-    BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput, HarnessContext,
-    HarnessService, InitResult, IntakeInput, InterventionAddInput, InterventionFilter,
-    KnowledgeService, MigrateResult, QueryTable, StoryAddInput, StoryUpdateInput,
-    ToolRegisterInput, TraceInput,
+    BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput, EvidenceAddInput,
+    EvidenceFilter, HarnessContext, HarnessService, InitResult, IntakeInput, InterventionAddInput,
+    InterventionFilter, KnowledgeService, MigrateResult, QueryTable, StoryAddInput,
+    StoryUpdateInput, ToolRegisterInput, TraceInput,
 };
 use crate::domain::knowledge;
 use crate::domain::{
     normalize_capability, parse_optional_integer, parse_tool_args, proof_display,
     validate_responsibility, validate_tool_kind, BacklogFilter, BacklogRecord, BoolFlag,
-    ContextScoreResult, CsvList, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
-    InputType, IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult,
-    ToolEntry, TraceQualityTier, TraceRecord, TraceScoreResult, RISK_LANE_HELP,
+    ContextScoreResult, CsvList, DecisionRecord, EvidenceRecord, FrictionRecord, HarnessStats,
+    DoneCheckReport, ImprovementProposal, InputType, IntakeRecord, InterventionRecord, RecapFilter,
+    RecapReport, RiskLane, StatusFilter, StatusReport, StatusSection, StoryMatrixRecord,
+    StoryVerifyAllResult, ToolEntry, TraceQualityTier, TraceRecord, TraceScoreResult,
+    RISK_LANE_HELP,
 };
 use crate::infrastructure::ToolCheckResult;
 
@@ -52,10 +54,14 @@ enum Command {
     Intervention(InterventionArgs),
     /// Record an agent execution trace.
     Trace(TraceArgs),
+    /// Add or list durable evidence artifacts.
+    Evidence(EvidenceArgs),
     /// Score a trace against the trace quality tiers.
     ScoreTrace(ScoreTraceArgs),
     /// Score trace context reads against CONTEXT_RULES.md.
     ScoreContext { trace_id: String },
+    /// Lane-aware completion gate for a story or intake (exit 1 if any check fails).
+    DoneCheck(DoneCheckArgs),
     /// Run drift audit and entropy score.
     Audit,
     /// Generate improvement proposals from observed patterns.
@@ -131,6 +137,9 @@ enum StoryAction {
     Verify {
         /// Story id to verify.
         id: String,
+        /// Skip auto-capturing the verify log into the evidence store.
+        #[arg(long = "no-capture")]
+        no_capture: bool,
     },
     /// Verify every story, skipping stories without verify_command.
     VerifyAll,
@@ -170,6 +179,9 @@ struct StoryUpdateArgs {
     platform: Option<String>,
     #[arg(long)]
     verify: Option<String>,
+    /// Live WIP resume hint: the current next step for this story.
+    #[arg(long = "next-action")]
+    next_action: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -351,6 +363,54 @@ struct TraceArgs {
     errors: Option<String>,
     #[arg(long)]
     notes: Option<String>,
+    /// Resume hint. Required when --outcome is partial, blocked, or failed.
+    #[arg(long = "next-action")]
+    next_action: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct EvidenceArgs {
+    #[command(subcommand)]
+    action: EvidenceAction,
+}
+
+#[derive(Subcommand, Debug)]
+enum EvidenceAction {
+    /// Hash an artifact, copy it into the gitignored store, and record a pointer.
+    Add(EvidenceAddArgs),
+    /// List recorded evidence pointers.
+    List(EvidenceListArgs),
+}
+
+#[derive(Args, Debug)]
+#[command(after_help = "Kinds: log, diff, screenshot, report, file. Sources: agent, human, ci, reviewer.")]
+struct EvidenceAddArgs {
+    #[arg(long = "kind")]
+    kind: String,
+    #[arg(long)]
+    path: String,
+    #[arg(long)]
+    story: Option<String>,
+    #[arg(long)]
+    trace: Option<String>,
+    #[arg(long)]
+    command: Option<String>,
+    #[arg(long, default_value = "agent")]
+    source: String,
+    #[arg(long)]
+    notes: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct EvidenceListArgs {
+    #[arg(long)]
+    story: Option<String>,
+    #[arg(long)]
+    trace: Option<String>,
+    #[arg(long = "kind")]
+    kind: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -358,6 +418,16 @@ struct ScoreTraceArgs {
     /// Score a specific trace id. Defaults to the latest trace.
     #[arg(long)]
     id: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct DoneCheckArgs {
+    #[arg(long)]
+    story: Option<String>,
+    #[arg(long)]
+    intake: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -370,6 +440,36 @@ struct ProposeArgs {
 struct QueryArgs {
     #[command(subcommand)]
     view: QueryView,
+}
+
+#[derive(Args, Debug)]
+#[command(after_help = RISK_LANE_HELP)]
+struct StatusQueryArgs {
+    #[arg(long)]
+    json: bool,
+    /// Filter story-derived sections by lane: tiny, normal, high-risk.
+    #[arg(long, value_name = "tiny|normal|high-risk")]
+    lane: Option<String>,
+    /// Per-section line cap (default 5).
+    #[arg(long, default_value_t = 5)]
+    limit: usize,
+    /// Remove the per-section cap (print every row).
+    #[arg(long)]
+    full: bool,
+}
+
+#[derive(Args, Debug)]
+struct RecapQueryArgs {
+    #[arg(long)]
+    story: Option<String>,
+    /// Story-id prefix to aggregate (e.g. US-00 matches US-001..US-009).
+    #[arg(long)]
+    epic: Option<String>,
+    /// Only include traces on or after this date (YYYY-MM-DD).
+    #[arg(long)]
+    since: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -391,6 +491,10 @@ struct BacklogQueryArgs {
 
 #[derive(Subcommand, Debug)]
 enum QueryView {
+    /// Read-Model session brief: what is being / has been / needs doing.
+    Status(StatusQueryArgs),
+    /// Deterministic rollup of traces by story, epic prefix, or since-date.
+    Recap(RecapQueryArgs),
     /// Test matrix.
     Matrix(MatrixQueryArgs),
     /// Harness improvement proposals.
@@ -503,15 +607,19 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     e2e: parse_optional_bool("story update: --e2e", args.e2e)?,
                     platform: parse_optional_bool("story update: --platform", args.platform)?,
                     verify_command: args.verify,
+                    next_action: args.next_action,
                 })?;
                 println!("Story {} updated.", args.id);
             }
-            StoryAction::Verify { id } => {
-                let result = service.verify_story(&id)?;
+            StoryAction::Verify { id, no_capture } => {
+                let result = service.verify_story(&id, !no_capture)?;
                 println!("Running: {}", result.command);
                 print!("{}", result.stdout);
                 print!("{}", result.stderr);
                 println!("Story {id} verification: {}", result.result);
+                if let Some(evidence_id) = result.evidence_id {
+                    println!("Captured verify log as evidence #{evidence_id}.");
+                }
                 if result.result == "fail" {
                     std::process::exit(1);
                 }
@@ -633,6 +741,7 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 token_estimate: parse_optional_integer("trace: --tokens", args.tokens)?,
                 friction: args.friction,
                 notes: args.notes,
+                next_action: args.next_action,
                 actions: CsvList::from_optional(args.actions),
                 files_read: CsvList::from_optional(args.files_read),
                 files_changed: CsvList::from_optional(args.files_changed),
@@ -647,6 +756,43 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 print_story_verify_warning(&service, &story_id)?;
             }
         }
+        Command::Evidence(args) => match args.action {
+            EvidenceAction::Add(args) => {
+                let trace_id = parse_optional_integer("evidence add: --trace", args.trace)?;
+                let result = service.add_evidence(EvidenceAddInput {
+                    kind: args.kind,
+                    path: args.path,
+                    story_id: args.story,
+                    trace_id,
+                    command: args.command,
+                    source: args.source,
+                    result: None,
+                    notes: args.notes,
+                })?;
+                let verb = if result.deduped {
+                    "Evidence already recorded (deduped)"
+                } else {
+                    "Evidence recorded"
+                };
+                println!("{verb} #{}", result.id);
+                println!("  path:   {}", result.path);
+                println!("  sha256: {}", result.sha256);
+                println!("  bytes:  {}", result.bytes);
+            }
+            EvidenceAction::List(args) => {
+                let trace_id = parse_optional_integer("evidence list: --trace", args.trace)?;
+                let records = service.list_evidence(EvidenceFilter {
+                    story_id: args.story,
+                    trace_id,
+                    kind: args.kind,
+                })?;
+                if args.json {
+                    print_evidence_json(&records);
+                } else {
+                    print_evidence_table(&records);
+                }
+            }
+        },
         Command::ScoreTrace(args) => {
             let id = parse_optional_integer("score-trace: --id", args.id)?;
             let result = service.score_trace(id)?;
@@ -689,9 +835,50 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 }
             }
         }
+        Command::DoneCheck(args) => {
+            let intake = parse_optional_integer("done-check: --intake", args.intake)?;
+            let report = service.done_check(args.story, intake)?;
+            if args.json {
+                print_done_check_json(&report);
+            } else {
+                print_done_check_text(&report);
+            }
+            if !report.passed() {
+                std::process::exit(1);
+            }
+        }
         Command::Audit => print_audit(&service.audit()?),
         Command::Propose(args) => print_proposals(&service.propose(args.commit)?),
         Command::Query(args) => match args.view {
+            QueryView::Status(args) => {
+                let lane = args
+                    .lane
+                    .map(|value| RiskLane::from_str(&value))
+                    .transpose()?
+                    .map(|lane| lane.as_db_value().to_owned());
+                let filter = StatusFilter {
+                    lane,
+                    limit: if args.full { None } else { Some(args.limit) },
+                };
+                let report = service.query_status(filter)?;
+                if args.json {
+                    print_status_json(&report);
+                } else {
+                    print_status_text(&report);
+                }
+            }
+            QueryView::Recap(args) => {
+                let report = service.query_recap(RecapFilter {
+                    story_id: args.story,
+                    epic_prefix: args.epic,
+                    since: args.since,
+                })?;
+                if args.json {
+                    print_recap_json(&report);
+                } else {
+                    print_recap_text(&report);
+                }
+            }
             QueryView::Matrix(args) => print_matrix(&service.query_matrix()?, args.numeric),
             QueryView::Backlog(args) => {
                 print_backlog(&service.query_backlog(backlog_filter(&args))?)
@@ -847,6 +1034,41 @@ fn print_context_score(result: &ContextScoreResult) {
     for item in &result.over_read {
         println!("  - {item}");
     }
+}
+
+fn print_done_check_text(report: &DoneCheckReport) {
+    println!(
+        "DONE-CHECK  {}  (lane: {})",
+        report.target, report.lane
+    );
+    for check in &report.checks {
+        let mark = if check.passed { "✔" } else { "✘" };
+        println!("  {mark} {} — {}", check.label, check.detail);
+    }
+    if report.passed() {
+        println!("RESULT: PASS");
+    } else {
+        println!("RESULT: FAIL (not done)");
+    }
+}
+
+fn print_done_check_json(report: &DoneCheckReport) {
+    println!("{{");
+    println!("  \"target\": \"{}\",", json_escape(&report.target));
+    println!("  \"lane\": \"{}\",", json_escape(&report.lane));
+    println!("  \"passed\": {},", report.passed());
+    println!("  \"checks\": [");
+    for (index, check) in report.checks.iter().enumerate() {
+        let comma = json_comma(index, report.checks.len());
+        println!(
+            "    {{\"label\": \"{}\", \"passed\": {}, \"detail\": \"{}\"}}{comma}",
+            json_escape(&check.label),
+            check.passed,
+            json_escape(&check.detail)
+        );
+    }
+    println!("  ]");
+    println!("}}");
 }
 
 fn print_audit(result: &crate::domain::AuditResult) {
@@ -1020,6 +1242,275 @@ fn resolve_context() -> Result<HarnessContext, InterfaceError> {
         db_path,
         schema_dir,
     })
+}
+
+fn status_header<T>(label: &str, section: &StatusSection<T>) {
+    println!("▌ {label}   {}", section.total);
+    if section.items.is_empty() {
+        println!("  • (none)");
+    }
+}
+
+fn status_hidden<T>(section: &StatusSection<T>) {
+    let hidden = section.hidden();
+    if hidden > 0 {
+        println!("  (+{hidden} nữa — dùng --full)");
+    }
+}
+
+fn print_status_text(report: &StatusReport) {
+    println!(
+        "HARNESS STATUS  (drift: {}/100 · {} group(s))",
+        report.entropy_score, report.drift_groups
+    );
+
+    println!();
+    status_header("ĐANG LÀM (in_progress)", &report.active);
+    for story in &report.active.items {
+        let next = story
+            .next_action
+            .as_deref()
+            .map(|value| format!("  → next: {value}"))
+            .unwrap_or_default();
+        println!("  • {:<8} [{}] {}{}", story.id, story.lane, story.title, next);
+    }
+    status_hidden(&report.active);
+
+    println!();
+    status_header("CẦN PROOF (implemented, chưa pass)", &report.needs_proof);
+    for gap in &report.needs_proof.items {
+        println!(
+            "  • {:<8} {}  verify={} unit={} integ={} e2e={} plat={}",
+            gap.id,
+            gap.title,
+            gap.verify_result.as_deref().unwrap_or("none"),
+            gap.unit,
+            gap.integration,
+            gap.e2e,
+            gap.platform,
+        );
+    }
+    status_hidden(&report.needs_proof);
+
+    println!();
+    status_header("RESUME (partial/blocked/failed)", &report.resume);
+    for item in &report.resume.items {
+        let story = item.story_id.as_deref().unwrap_or("-");
+        let next = item.next_action.as_deref().unwrap_or("-");
+        println!(
+            "  • trace#{:<4} {:<8} {}  → next: {}",
+            item.trace_id, item.outcome, story, next
+        );
+    }
+    status_hidden(&report.resume);
+
+    println!();
+    status_header("BACKLOG MỞ (high-risk trước)", &report.backlog);
+    for item in &report.backlog.items {
+        let risk = item.risk.as_deref().unwrap_or("-");
+        let pred = item
+            .predicted
+            .as_deref()
+            .map(|value| format!("  pred: {value}"))
+            .unwrap_or_default();
+        println!("  • #{:<4} [{}] {}{}", item.id, risk, item.title, pred);
+    }
+    status_hidden(&report.backlog);
+
+    println!();
+    status_header("INTERVENTION gần đây", &report.interventions);
+    for item in &report.interventions.items {
+        let trace = item
+            .trace_id
+            .map(|value| format!("trace#{value}"))
+            .unwrap_or_else(|| "-".to_owned());
+        println!(
+            "  • #{:<4} {} ({}) on {}",
+            item.id, item.intervention_type, item.source, trace
+        );
+    }
+    status_hidden(&report.interventions);
+
+    println!();
+    status_header("HOẠT ĐỘNG GẦN NHẤT", &report.recent);
+    for item in &report.recent.items {
+        let outcome = item.outcome.as_deref().unwrap_or("-");
+        println!("  • trace#{:<4} {:<9} {}", item.trace_id, outcome, item.task_summary);
+    }
+    status_hidden(&report.recent);
+}
+
+fn print_status_json(report: &StatusReport) {
+    println!("{{");
+    println!("  \"entropy_score\": {},", report.entropy_score);
+    println!("  \"drift_groups\": {},", report.drift_groups);
+
+    println!("  \"active\": {{ \"total\": {}, \"items\": [", report.active.total);
+    for (index, story) in report.active.items.iter().enumerate() {
+        let comma = json_comma(index, report.active.items.len());
+        println!(
+            "    {{\"id\": \"{}\", \"lane\": \"{}\", \"title\": \"{}\", \"next_action\": {}}}{comma}",
+            json_escape(&story.id),
+            json_escape(&story.lane),
+            json_escape(&story.title),
+            json_optional(story.next_action.as_deref())
+        );
+    }
+    println!("  ]}},");
+
+    println!("  \"needs_proof\": {{ \"total\": {}, \"items\": [", report.needs_proof.total);
+    for (index, gap) in report.needs_proof.items.iter().enumerate() {
+        let comma = json_comma(index, report.needs_proof.items.len());
+        println!(
+            "    {{\"id\": \"{}\", \"verify_result\": {}, \"unit\": {}, \"integration\": {}, \"e2e\": {}, \"platform\": {}}}{comma}",
+            json_escape(&gap.id),
+            json_optional(gap.verify_result.as_deref()),
+            gap.unit, gap.integration, gap.e2e, gap.platform
+        );
+    }
+    println!("  ]}},");
+
+    println!("  \"resume\": {{ \"total\": {}, \"items\": [", report.resume.total);
+    for (index, item) in report.resume.items.iter().enumerate() {
+        let comma = json_comma(index, report.resume.items.len());
+        println!(
+            "    {{\"trace_id\": {}, \"story_id\": {}, \"outcome\": \"{}\", \"next_action\": {}}}{comma}",
+            item.trace_id,
+            json_optional(item.story_id.as_deref()),
+            json_escape(&item.outcome),
+            json_optional(item.next_action.as_deref())
+        );
+    }
+    println!("  ]}},");
+
+    println!("  \"backlog\": {{ \"total\": {}, \"items\": [", report.backlog.total);
+    for (index, item) in report.backlog.items.iter().enumerate() {
+        let comma = json_comma(index, report.backlog.items.len());
+        println!(
+            "    {{\"id\": {}, \"risk\": {}, \"title\": \"{}\", \"predicted\": {}}}{comma}",
+            item.id,
+            json_optional(item.risk.as_deref()),
+            json_escape(&item.title),
+            json_optional(item.predicted.as_deref())
+        );
+    }
+    println!("  ]}},");
+
+    println!(
+        "  \"interventions\": {{ \"total\": {}, \"items\": [",
+        report.interventions.total
+    );
+    for (index, item) in report.interventions.items.iter().enumerate() {
+        let comma = json_comma(index, report.interventions.items.len());
+        println!(
+            "    {{\"id\": {}, \"type\": \"{}\", \"source\": \"{}\", \"trace_id\": {}}}{comma}",
+            item.id,
+            json_escape(&item.intervention_type),
+            json_escape(&item.source),
+            item.trace_id
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_owned())
+        );
+    }
+    println!("  ]}},");
+
+    println!("  \"recent\": {{ \"total\": {}, \"items\": [", report.recent.total);
+    for (index, item) in report.recent.items.iter().enumerate() {
+        let comma = json_comma(index, report.recent.items.len());
+        println!(
+            "    {{\"trace_id\": {}, \"outcome\": {}, \"task_summary\": \"{}\"}}{comma}",
+            item.trace_id,
+            json_optional(item.outcome.as_deref()),
+            json_escape(&item.task_summary)
+        );
+    }
+    println!("  ]}}");
+    println!("}}");
+}
+
+fn recap_counts_line(counts: &[crate::domain::RecapCount]) -> String {
+    if counts.is_empty() {
+        return "(none)".to_owned();
+    }
+    counts
+        .iter()
+        .map(|item| format!("{} ({})", item.key, item.count))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn print_recap_text(report: &RecapReport) {
+    let window = match (report.first_at.as_deref(), report.last_at.as_deref()) {
+        (Some(first), Some(last)) => format!("{first} → {last}, "),
+        _ => String::new(),
+    };
+    println!(
+        "RECAP  {}  ({}{} traces)",
+        report.scope, window, report.trace_count
+    );
+    println!();
+    println!(
+        "Outcome:      completed {} · partial {} · blocked {} · failed {}",
+        report.completed, report.partial, report.blocked, report.failed
+    );
+    println!("Files đụng:   {}", recap_counts_line(&report.files));
+    println!("Friction:     {}", recap_counts_line(&report.friction));
+    let decisions = if report.decisions.is_empty() {
+        "(none)".to_owned()
+    } else {
+        report.decisions.join(", ")
+    };
+    println!("Decisions:    {decisions}");
+    println!("Intervention: {}", recap_counts_line(&report.interventions));
+}
+
+fn print_recap_counts_json(counts: &[crate::domain::RecapCount]) {
+    print!("[");
+    for (index, item) in counts.iter().enumerate() {
+        let comma = json_comma(index, counts.len());
+        print!(
+            "{{\"key\": \"{}\", \"count\": {}}}{comma}",
+            json_escape(&item.key),
+            item.count
+        );
+    }
+    print!("]");
+}
+
+fn print_recap_json(report: &RecapReport) {
+    println!("{{");
+    println!("  \"scope\": \"{}\",", json_escape(&report.scope));
+    println!("  \"first_at\": {},", json_optional(report.first_at.as_deref()));
+    println!("  \"last_at\": {},", json_optional(report.last_at.as_deref()));
+    println!("  \"trace_count\": {},", report.trace_count);
+    println!(
+        "  \"outcome\": {{\"completed\": {}, \"partial\": {}, \"blocked\": {}, \"failed\": {}}},",
+        report.completed, report.partial, report.blocked, report.failed
+    );
+    print!("  \"files\": ");
+    print_recap_counts_json(&report.files);
+    println!(",");
+    print!("  \"friction\": ");
+    print_recap_counts_json(&report.friction);
+    println!(",");
+    print!("  \"decisions\": [");
+    for (index, decision) in report.decisions.iter().enumerate() {
+        let comma = json_comma(index, report.decisions.len());
+        print!("\"{}\"{comma}", json_escape(decision));
+    }
+    println!("],");
+    print!("  \"interventions\": ");
+    print_recap_counts_json(&report.interventions);
+    println!();
+    println!("}}");
+}
+
+fn json_comma(index: usize, len: usize) -> &'static str {
+    if index + 1 == len {
+        ""
+    } else {
+        ","
+    }
 }
 
 fn print_matrix(records: &[StoryMatrixRecord], numeric: bool) {
@@ -1324,6 +1815,69 @@ fn print_interventions(records: &[InterventionRecord]) {
         ],
         &rows,
     );
+}
+
+fn print_evidence_table(records: &[EvidenceRecord]) {
+    let rows = records
+        .iter()
+        .map(|record| {
+            vec![
+                record.id.to_string(),
+                record.created_at.clone(),
+                record.story_id.clone().unwrap_or_default(),
+                record
+                    .trace_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                record.kind.clone(),
+                record.result.clone().unwrap_or_default(),
+                record.bytes.map(|value| value.to_string()).unwrap_or_default(),
+                format!("{}…", &record.sha256[..12.min(record.sha256.len())]),
+                record.path.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(
+        &[
+            "id", "created_at", "story", "trace", "kind", "result", "bytes", "sha256", "path",
+        ],
+        &rows,
+    );
+}
+
+fn print_evidence_json(records: &[EvidenceRecord]) {
+    println!("[");
+    for (index, record) in records.iter().enumerate() {
+        let comma = if index + 1 == records.len() { "" } else { "," };
+        println!("  {{");
+        println!("    \"id\": {},", record.id);
+        println!("    \"created_at\": \"{}\",", json_escape(&record.created_at));
+        println!("    \"story_id\": {},", json_optional(record.story_id.as_deref()));
+        println!(
+            "    \"trace_id\": {},",
+            record
+                .trace_id
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_owned())
+        );
+        println!("    \"kind\": \"{}\",", json_escape(&record.kind));
+        println!("    \"path\": \"{}\",", json_escape(&record.path));
+        println!("    \"sha256\": \"{}\",", json_escape(&record.sha256));
+        println!(
+            "    \"bytes\": {},",
+            record
+                .bytes
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_owned())
+        );
+        println!("    \"digest\": {},", json_optional(record.digest.as_deref()));
+        println!("    \"command\": {},", json_optional(record.command.as_deref()));
+        println!("    \"result\": {},", json_optional(record.result.as_deref()));
+        println!("    \"source\": \"{}\",", json_escape(&record.source));
+        println!("    \"notes\": {}", json_optional(record.notes.as_deref()));
+        println!("  }}{comma}");
+    }
+    println!("]");
 }
 
 fn json_escape(value: &str) -> String {

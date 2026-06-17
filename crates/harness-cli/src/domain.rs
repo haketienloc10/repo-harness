@@ -1032,6 +1032,174 @@ pub struct InterventionRecord {
     pub impact: Option<String>,
 }
 
+/// Read-Model / Session Brief (`query status`). A derived view — every field
+/// traces back to story/trace/backlog/intervention; no new storage.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StatusFilter {
+    /// Lane filter (db value: tiny/normal/high_risk) for story-derived sections.
+    pub lane: Option<String>,
+    /// Per-section line cap. None = no cap (`--full`).
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusSection<T> {
+    pub total: usize,
+    pub items: Vec<T>,
+}
+
+impl<T> StatusSection<T> {
+    /// Build a section from all matching rows, capping the visible items.
+    pub fn capped(all: Vec<T>, limit: Option<usize>) -> Self {
+        let total = all.len();
+        let items = match limit {
+            Some(n) => all.into_iter().take(n).collect(),
+            None => all,
+        };
+        Self { total, items }
+    }
+
+    /// How many rows are hidden by the cap (the "no silent caps" marker).
+    pub fn hidden(&self) -> usize {
+        self.total - self.items.len()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusStory {
+    pub id: String,
+    pub title: String,
+    pub lane: String,
+    pub next_action: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusProofGap {
+    pub id: String,
+    pub title: String,
+    pub lane: String,
+    pub verify_result: Option<String>,
+    pub unit: i64,
+    pub integration: i64,
+    pub e2e: i64,
+    pub platform: i64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusResume {
+    pub trace_id: i64,
+    pub story_id: Option<String>,
+    pub outcome: String,
+    pub next_action: Option<String>,
+    pub task_summary: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusBacklogItem {
+    pub id: i64,
+    pub risk: Option<String>,
+    pub title: String,
+    pub predicted: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusInterventionItem {
+    pub id: i64,
+    pub intervention_type: String,
+    pub source: String,
+    pub trace_id: Option<i64>,
+    pub story_id: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusActivity {
+    pub trace_id: i64,
+    pub outcome: Option<String>,
+    pub task_summary: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StatusReport {
+    pub entropy_score: i64,
+    pub drift_groups: i64,
+    pub active: StatusSection<StatusStory>,
+    pub needs_proof: StatusSection<StatusProofGap>,
+    pub resume: StatusSection<StatusResume>,
+    pub backlog: StatusSection<StatusBacklogItem>,
+    pub interventions: StatusSection<StatusInterventionItem>,
+    pub recent: StatusSection<StatusActivity>,
+}
+
+/// Done-check gate (`done-check`). A lane-aware aggregator of existing checks
+/// plus evidence/next-action — read + exit code, no new storage.
+#[derive(Debug, PartialEq, Eq)]
+pub struct DoneCheckItem {
+    pub label: String,
+    pub passed: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DoneCheckReport {
+    pub target: String,
+    pub lane: String,
+    pub checks: Vec<DoneCheckItem>,
+}
+
+impl DoneCheckReport {
+    pub fn passed(&self) -> bool {
+        self.checks.iter().all(|check| check.passed)
+    }
+}
+
+/// Recap rollup (`query recap`). A deterministic templated count/group over
+/// traces — no semantic summary, no LLM. Pure derived view.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RecapFilter {
+    pub story_id: Option<String>,
+    pub epic_prefix: Option<String>,
+    pub since: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecapCount {
+    pub key: String,
+    pub count: i64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecapReport {
+    pub scope: String,
+    pub first_at: Option<String>,
+    pub last_at: Option<String>,
+    pub trace_count: i64,
+    pub completed: i64,
+    pub partial: i64,
+    pub blocked: i64,
+    pub failed: i64,
+    pub files: Vec<RecapCount>,
+    pub friction: Vec<RecapCount>,
+    pub decisions: Vec<String>,
+    pub interventions: Vec<RecapCount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidenceRecord {
+    pub id: i64,
+    pub created_at: String,
+    pub story_id: Option<String>,
+    pub trace_id: Option<i64>,
+    pub kind: String,
+    pub path: String,
+    pub sha256: String,
+    pub bytes: Option<i64>,
+    pub digest: Option<String>,
+    pub command: Option<String>,
+    pub result: Option<String>,
+    pub source: String,
+    pub notes: Option<String>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct ContextScoreSource {
     pub id: i64,
@@ -1208,6 +1376,247 @@ pub fn proof_display(value: i64, numeric: bool) -> String {
         value.to_string()
     } else {
         yes_no(value)
+    }
+}
+
+/// Pure logic for the durable evidence store (the artifact pointers backing
+/// proof booleans). Filesystem copy and SQLite writes live in `infrastructure`;
+/// this module owns value-object validation, content hashing, and digesting.
+pub mod evidence {
+    use thiserror::Error;
+
+    pub const KINDS: &[&str] = &["log", "diff", "screenshot", "report", "file"];
+    pub const SOURCES: &[&str] = &["agent", "human", "ci", "reviewer"];
+    /// Lines kept from the head and tail of a text artifact for its digest.
+    pub const DIGEST_EDGE_LINES: usize = 20;
+
+    #[derive(Debug, Error, PartialEq, Eq)]
+    pub enum EvidenceValidationError {
+        #[error("unknown evidence kind '{0}'. Use one of: log, diff, screenshot, report, file")]
+        Kind(String),
+        #[error("unknown evidence source '{0}'. Use one of: agent, human, ci, reviewer")]
+        Source(String),
+        #[error("evidence add requires --story or --trace to anchor the artifact")]
+        MissingAnchor,
+    }
+
+    /// Validate and canonicalize an evidence kind.
+    pub fn validate_kind(value: &str) -> Result<String, EvidenceValidationError> {
+        let normalized = value.trim().to_lowercase();
+        if KINDS.contains(&normalized.as_str()) {
+            Ok(normalized)
+        } else {
+            Err(EvidenceValidationError::Kind(value.to_owned()))
+        }
+    }
+
+    /// Validate and canonicalize an evidence source (defaults handled by caller).
+    pub fn validate_source(value: &str) -> Result<String, EvidenceValidationError> {
+        let normalized = value.trim().to_lowercase();
+        if SOURCES.contains(&normalized.as_str()) {
+            Ok(normalized)
+        } else {
+            Err(EvidenceValidationError::Source(value.to_owned()))
+        }
+    }
+
+    /// Text kinds get a head+tail line digest; binary kinds get metadata only.
+    pub fn is_text_kind(kind: &str) -> bool {
+        matches!(kind, "log" | "diff" | "report")
+    }
+
+    /// Build a short human-readable digest of an artifact.
+    ///
+    /// Text kinds: first and last `DIGEST_EDGE_LINES` lines, with an elision
+    /// marker when the middle is dropped. Binary kinds: a `<size>/<ext>`
+    /// metadata line (no content), per decision 0002.
+    pub fn build_digest(kind: &str, file_name: &str, bytes: &[u8]) -> String {
+        if !is_text_kind(kind) {
+            let ext = file_name
+                .rsplit_once('.')
+                .map(|(_, ext)| ext)
+                .filter(|ext| !ext.is_empty())
+                .unwrap_or("none");
+            return format!("binary {kind} ({} bytes, .{ext})", bytes.len());
+        }
+        let text = String::from_utf8_lossy(bytes);
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.len() <= DIGEST_EDGE_LINES * 2 {
+            return lines.join("\n");
+        }
+        let head = lines[..DIGEST_EDGE_LINES].join("\n");
+        let tail = lines[lines.len() - DIGEST_EDGE_LINES..].join("\n");
+        let omitted = lines.len() - DIGEST_EDGE_LINES * 2;
+        format!("{head}\n... ({omitted} lines omitted) ...\n{tail}")
+    }
+
+    /// SHA-256 of arbitrary bytes, lowercase hex. Self-contained (no external
+    /// crate) so the prebuilt binary stays dependency-light and deterministic.
+    pub fn sha256_hex(bytes: &[u8]) -> String {
+        let mut hash = Sha256::new();
+        hash.update(bytes);
+        hash.finalize_hex()
+    }
+
+    const H0: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+
+    struct Sha256 {
+        state: [u32; 8],
+        buffer: Vec<u8>,
+        length: u64,
+    }
+
+    impl Sha256 {
+        fn new() -> Self {
+            Self {
+                state: H0,
+                buffer: Vec::with_capacity(64),
+                length: 0,
+            }
+        }
+
+        fn update(&mut self, data: &[u8]) {
+            self.length = self.length.wrapping_add(data.len() as u64);
+            self.buffer.extend_from_slice(data);
+            let mut offset = 0;
+            while self.buffer.len() - offset >= 64 {
+                let mut block = [0u8; 64];
+                block.copy_from_slice(&self.buffer[offset..offset + 64]);
+                self.process(&block);
+                offset += 64;
+            }
+            self.buffer.drain(..offset);
+        }
+
+        fn finalize_hex(mut self) -> String {
+            let bit_length = self.length.wrapping_mul(8);
+            self.buffer.push(0x80);
+            while self.buffer.len() % 64 != 56 {
+                self.buffer.push(0);
+            }
+            self.buffer.extend_from_slice(&bit_length.to_be_bytes());
+            let blocks = self.buffer.clone();
+            for block in blocks.chunks_exact(64) {
+                let mut chunk = [0u8; 64];
+                chunk.copy_from_slice(block);
+                self.process(&chunk);
+            }
+            let mut hex = String::with_capacity(64);
+            for word in self.state {
+                hex.push_str(&format!("{word:08x}"));
+            }
+            hex
+        }
+
+        fn process(&mut self, block: &[u8; 64]) {
+            let mut w = [0u32; 64];
+            for (index, chunk) in block.chunks_exact(4).enumerate() {
+                w[index] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            }
+            for index in 16..64 {
+                let s0 = w[index - 15].rotate_right(7)
+                    ^ w[index - 15].rotate_right(18)
+                    ^ (w[index - 15] >> 3);
+                let s1 = w[index - 2].rotate_right(17)
+                    ^ w[index - 2].rotate_right(19)
+                    ^ (w[index - 2] >> 10);
+                w[index] = w[index - 16]
+                    .wrapping_add(s0)
+                    .wrapping_add(w[index - 7])
+                    .wrapping_add(s1);
+            }
+
+            let mut h = self.state;
+            for index in 0..64 {
+                let s1 = h[4].rotate_right(6) ^ h[4].rotate_right(11) ^ h[4].rotate_right(25);
+                let ch = (h[4] & h[5]) ^ ((!h[4]) & h[6]);
+                let temp1 = h[7]
+                    .wrapping_add(s1)
+                    .wrapping_add(ch)
+                    .wrapping_add(K[index])
+                    .wrapping_add(w[index]);
+                let s0 = h[0].rotate_right(2) ^ h[0].rotate_right(13) ^ h[0].rotate_right(22);
+                let maj = (h[0] & h[1]) ^ (h[0] & h[2]) ^ (h[1] & h[2]);
+                let temp2 = s0.wrapping_add(maj);
+                h[7] = h[6];
+                h[6] = h[5];
+                h[5] = h[4];
+                h[4] = h[3].wrapping_add(temp1);
+                h[3] = h[2];
+                h[2] = h[1];
+                h[1] = h[0];
+                h[0] = temp1.wrapping_add(temp2);
+            }
+            for (state, value) in self.state.iter_mut().zip(h) {
+                *state = state.wrapping_add(value);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn sha256_matches_known_vectors() {
+            assert_eq!(
+                sha256_hex(b""),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            );
+            assert_eq!(
+                sha256_hex(b"abc"),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            );
+            assert_eq!(
+                sha256_hex(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+            );
+        }
+
+        #[test]
+        fn text_digest_keeps_head_and_tail() {
+            let body = (1..=100)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let digest = build_digest("log", "run.log", body.as_bytes());
+            assert!(digest.contains("line 1"));
+            assert!(digest.contains("line 100"));
+            assert!(digest.contains("lines omitted"));
+            assert!(!digest.contains("line 50"));
+        }
+
+        #[test]
+        fn binary_digest_is_metadata_only() {
+            let digest = build_digest("screenshot", "shot.png", &[0u8, 1, 2, 3]);
+            assert!(digest.contains("binary screenshot"));
+            assert!(digest.contains("4 bytes"));
+            assert!(digest.contains(".png"));
+        }
+
+        #[test]
+        fn kind_and_source_validation() {
+            assert_eq!(validate_kind("LOG").unwrap(), "log");
+            assert!(validate_kind("video").is_err());
+            assert_eq!(validate_source("CI").unwrap(), "ci");
+            assert!(validate_source("bot").is_err());
+        }
     }
 }
 

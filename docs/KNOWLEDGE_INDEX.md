@@ -37,6 +37,8 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 
 - `AGENTS.md` — Entrypoint and onboarding for AI agents; points into
   `_harness/`.
+- `CLAUDE.md` — Claude Code project entrypoint; defers to `AGENTS.md` and the
+  `_harness/` workflow.
 - `Cargo.lock` — Pinned dependency versions for the Cargo workspace.
 - `Cargo.toml` — Cargo workspace manifest (member: `crates/harness-cli`).
 - `README.md` — Human onboarding: what Harness is and why it exists.
@@ -61,6 +63,8 @@ Docs-First 7-stage workflow and a durable SQLite layer driven by `harness-cli`.
 - `docs/decisions/` — Architecture Decision Records (ADRs); the inherited
   decision log read before changing contracts.
 - `docs/product/` — Product specifications and contracts that stories implement.
+- `docs/proposals/` — Input-material design proposals; sliced into
+  stories/decisions, then frozen as design records.
 - `docs/stories/` — Story packets grouped under `epics/`; each story is the
   product contract for one change.
 - `docs/templates/` — Authoring templates for decisions, stories, spec intake,

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,18 +10,21 @@ use thiserror::Error;
 
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
-    DecisionVerifyResult, HarnessContext, InitResult, IntakeInput, InterventionAddInput,
-    InterventionFilter, MigrateResult, QueryTable, StoryAddInput, StoryUpdateInput,
-    StoryVerifyResult, ToolRegisterInput, TraceInput,
+    DecisionVerifyResult, EvidenceAddInput, EvidenceAddResult, EvidenceFilter, HarnessContext,
+    InitResult, IntakeInput, InterventionAddInput, InterventionFilter, MigrateResult, QueryTable,
+    StoryAddInput, StoryUpdateInput, StoryVerifyResult, ToolRegisterInput, TraceInput,
 };
 use crate::domain::knowledge::{self, KnowledgeInputs, RunCommand, TopLevelEntry};
 use crate::domain::{
-    compiled_tool_registry, normalize_token, score_context, score_trace, validate_tool_description,
-    AuditFinding, AuditResult, BacklogFilter, BacklogRecord, ContextScoreResult,
-    ContextScoreSource, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
-    IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllItem,
-    StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
-    TraceScoreSource,
+    compiled_tool_registry, evidence, jsonish_list, normalize_token, score_context, score_trace,
+    validate_tool_description, AuditFinding, AuditResult, BacklogFilter, BacklogRecord,
+    ContextScoreResult, ContextScoreSource, DecisionRecord, DoneCheckItem, DoneCheckReport,
+    EvidenceRecord, FrictionRecord,
+    HarnessStats, ImprovementProposal, IntakeRecord, InterventionRecord, RecapCount, RecapFilter,
+    RecapReport, RiskLane, StatusActivity, StatusBacklogItem, StatusFilter, StatusInterventionItem,
+    StatusProofGap, StatusReport, StatusResume, StatusSection, StatusStory, StoryMatrixRecord,
+    StoryVerifyAllItem, StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec, ToolEntry,
+    TraceRecord, TraceScoreResult, TraceScoreSource, RESPONSIBILITIES,
 };
 
 pub type Result<T> = std::result::Result<T, HarnessInfraError>;
@@ -56,6 +59,16 @@ pub enum HarnessInfraError {
     NoTraces,
     #[error("story update: nothing to update")]
     EmptyStoryUpdate,
+    #[error("trace --outcome {0} requires --next-action \"<what to do next>\" (unfinished work must record a resume hint)")]
+    NextActionRequired(String),
+    #[error("{0}")]
+    EvidenceValidation(#[from] crate::domain::evidence::EvidenceValidationError),
+    #[error("evidence add: artifact not found or unreadable at {0}")]
+    EvidenceArtifactMissing(String),
+    #[error("evidence add: anchor not found ({0})")]
+    EvidenceAnchorNotFound(String),
+    #[error("done-check requires --story <id> or --intake <id>")]
+    DoneCheckTargetMissing,
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("io error: {0}")]
@@ -80,7 +93,7 @@ pub trait HarnessRepository {
     fn record_intake(&self, input: IntakeInput) -> Result<i64>;
     fn add_story(&self, input: StoryAddInput) -> Result<()>;
     fn update_story(&self, input: StoryUpdateInput) -> Result<()>;
-    fn verify_story(&self, id: &str) -> Result<StoryVerifyResult>;
+    fn verify_story(&self, id: &str, capture: bool) -> Result<StoryVerifyResult>;
     fn verify_all_stories(&self) -> Result<StoryVerifyAllResult>;
     fn add_decision(&self, input: DecisionAddInput) -> Result<()>;
     fn verify_decision(&self, id: &str) -> Result<DecisionVerifyResult>;
@@ -91,6 +104,8 @@ pub trait HarnessRepository {
     fn check_tools(&self, name: Option<String>) -> Result<Vec<ToolCheckResult>>;
     fn add_intervention(&self, input: InterventionAddInput) -> Result<i64>;
     fn record_trace(&self, input: TraceInput) -> Result<i64>;
+    fn add_evidence(&self, input: EvidenceAddInput) -> Result<EvidenceAddResult>;
+    fn list_evidence(&self, filter: EvidenceFilter) -> Result<Vec<EvidenceRecord>>;
     fn score_trace(&self, id: Option<i64>) -> Result<TraceScoreResult>;
     fn score_context(&self, id: i64) -> Result<ContextScoreResult>;
     fn story_verify_status(&self, id: &str) -> Result<StoryVerifyStatus>;
@@ -107,9 +122,27 @@ pub trait HarnessRepository {
     ) -> Result<Vec<ToolEntry>>;
     fn query_interventions(&self, filter: InterventionFilter) -> Result<Vec<InterventionRecord>>;
     fn query_stats(&self) -> Result<HarnessStats>;
+    fn query_status(&self, filter: StatusFilter) -> Result<StatusReport>;
+    fn query_recap(&self, filter: RecapFilter) -> Result<RecapReport>;
+    fn done_check(&self, story_id: Option<String>, intake_id: Option<i64>)
+        -> Result<DoneCheckReport>;
     fn audit(&self) -> Result<AuditResult>;
     fn propose(&self, commit: bool) -> Result<Vec<ImprovementProposal>>;
     fn query_sql(&self, sql: &str) -> Result<QueryTable>;
+}
+
+/// One story row read by `done_check`, named to keep the query closure tidy.
+struct DoneCheckStoryRow {
+    lane: String,
+    status: String,
+    verify_command: Option<String>,
+    last_verified: Option<String>,
+    unit: i64,
+    integration: i64,
+    e2e: i64,
+    platform: i64,
+    next_action: Option<String>,
+    contract_doc: Option<String>,
 }
 
 #[derive(Debug)]
@@ -414,6 +447,146 @@ impl SqliteHarnessRepository {
 
         Ok(imported)
     }
+
+    /// Copy an evidence artifact into the gitignored store and return its
+    /// repo-relative pointer. Naming is content-addressed
+    /// (`<kind>-<sha16><ext>`) so identical bytes resolve to the same file.
+    fn store_evidence_artifact(
+        &self,
+        story_id: Option<&str>,
+        trace_id: Option<i64>,
+        kind: &str,
+        sha256: &str,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<String> {
+        let key = match (story_id, trace_id) {
+            (Some(story), _) => sanitize_key(story),
+            (None, Some(trace)) => format!("trace-{trace}"),
+            (None, None) => "unlinked".to_owned(),
+        };
+        let ext = file_name
+            .rsplit_once('.')
+            .map(|(_, ext)| format!(".{}", sanitize_key(ext)))
+            .filter(|ext| ext.len() > 1)
+            .unwrap_or_else(|| {
+                if evidence::is_text_kind(kind) {
+                    ".txt".to_owned()
+                } else {
+                    ".bin".to_owned()
+                }
+            });
+        let short = &sha256[..16.min(sha256.len())];
+        let relative = format!("_harness/evidence/{key}/{kind}-{short}{ext}");
+        let absolute = self.repo_root.join(&relative);
+        if let Some(parent) = absolute.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&absolute, bytes)?;
+        Ok(relative)
+    }
+
+    /// Check the four high-risk packet anchors live next to the story's
+    /// contract doc (overview/execplan/design/validation).
+    fn high_risk_anchors_present(&self, contract_doc: Option<&str>) -> (bool, String) {
+        let Some(contract) = contract_doc.filter(|value| !value.trim().is_empty()) else {
+            return (false, "no contract_doc to locate the packet folder".to_owned());
+        };
+        let folder = match Path::new(contract).parent() {
+            Some(parent) => self.repo_root.join(parent),
+            None => return (false, "contract_doc has no parent folder".to_owned()),
+        };
+        let anchors = ["overview.md", "execplan.md", "design.md", "validation.md"];
+        let missing: Vec<&str> = anchors
+            .iter()
+            .copied()
+            .filter(|anchor| !folder.join(anchor).exists())
+            .collect();
+        if missing.is_empty() {
+            (true, "overview/execplan/design/validation present".to_owned())
+        } else {
+            (false, format!("missing: {}", missing.join(", ")))
+        }
+    }
+
+    /// Capture a `story verify` log as a `kind='log'` evidence row, keeping the
+    /// store small: keep-last per `(story, 'log', result)` and content dedup by
+    /// sha256. A `fail→pass` transition naturally keeps both rows because
+    /// keep-last is keyed by result (the fix evidence survives). See decision
+    /// 0002 / US-004.
+    fn capture_verify_log(
+        &self,
+        connection: &Connection,
+        story_id: &str,
+        command: &str,
+        result: &str,
+        log_text: &str,
+    ) -> Result<i64> {
+        let bytes = log_text.as_bytes();
+        let sha256 = evidence::sha256_hex(bytes);
+
+        // Content dedup: an identical log with the SAME result already captured
+        // ⇒ refresh recency only. Scoping by result is essential: a fail→pass
+        // transition that emits byte-identical output must NOT dedup against the
+        // stale fail row, or no result='pass' row would ever be created.
+        let duplicate: Option<i64> = connection
+            .query_row(
+                "SELECT id FROM evidence
+                 WHERE story_id = ?1 AND kind = 'log' AND sha256 = ?2 AND result = ?3
+                 ORDER BY id DESC LIMIT 1;",
+                params![story_id, sha256, result],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if let Some(id) = duplicate {
+            connection.execute(
+                "UPDATE evidence SET created_at = datetime('now'), command = ?2 WHERE id = ?1;",
+                params![id, command],
+            )?;
+            return Ok(id);
+        }
+
+        // Keep-last: drop the prior row + file for the SAME result.
+        let mut statement = connection.prepare(
+            "SELECT path FROM evidence WHERE story_id = ?1 AND kind = 'log' AND result = ?2;",
+        )?;
+        let stale_rows = statement.query_map(params![story_id, result], |row| {
+            row.get::<_, String>(0)
+        })?;
+        for path in collect_rows(stale_rows)? {
+            let _ = fs::remove_file(self.repo_root.join(&path));
+        }
+        drop(statement);
+        connection.execute(
+            "DELETE FROM evidence WHERE story_id = ?1 AND kind = 'log' AND result = ?2;",
+            params![story_id, result],
+        )?;
+
+        let digest = evidence::build_digest("log", "verify.log", bytes);
+        let stored_path = self.store_evidence_artifact(
+            Some(story_id),
+            None,
+            "log",
+            &sha256,
+            "verify.log",
+            bytes,
+        )?;
+        connection.execute(
+            "INSERT INTO evidence
+                (story_id, kind, path, sha256, bytes, digest, command, result, source)
+             VALUES (?1, 'log', ?2, ?3, ?4, ?5, ?6, ?7, 'agent');",
+            params![
+                story_id,
+                stored_path,
+                sha256,
+                bytes.len() as i64,
+                digest,
+                command,
+                result,
+            ],
+        )?;
+        Ok(connection.last_insert_rowid())
+    }
 }
 
 impl HarnessRepository for SqliteHarnessRepository {
@@ -512,6 +685,7 @@ impl HarnessRepository for SqliteHarnessRepository {
             && input.e2e.is_none()
             && input.platform.is_none()
             && input.verify_command.is_none()
+            && input.next_action.is_none()
         {
             return Err(HarnessInfraError::EmptyStoryUpdate);
         }
@@ -525,7 +699,9 @@ impl HarnessRepository for SqliteHarnessRepository {
                 integration_proof=COALESCE(?4, integration_proof),
                 e2e_proof=COALESCE(?5, e2e_proof),
                 platform_proof=COALESCE(?6, platform_proof),
-                verify_command=COALESCE(?7, verify_command)
+                verify_command=COALESCE(?7, verify_command),
+                next_action=COALESCE(?9, next_action),
+                next_action_at=CASE WHEN ?9 IS NOT NULL THEN datetime('now') ELSE next_action_at END
              WHERE id=?8;",
             params![
                 input.status,
@@ -536,6 +712,7 @@ impl HarnessRepository for SqliteHarnessRepository {
                 input.platform.map(|value| value.0),
                 input.verify_command,
                 input.id,
+                input.next_action,
             ],
         )?;
 
@@ -545,7 +722,7 @@ impl HarnessRepository for SqliteHarnessRepository {
         Ok(())
     }
 
-    fn verify_story(&self, id: &str) -> Result<StoryVerifyResult> {
+    fn verify_story(&self, id: &str, capture: bool) -> Result<StoryVerifyResult> {
         let connection = self.open_existing()?;
         let verify_command = connection
             .query_row(
@@ -577,11 +754,24 @@ impl HarnessRepository for SqliteHarnessRepository {
             params![result, id],
         )?;
 
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+        // Auto-capture (default-on): a proof boolean must always have a fresh
+        // log backing it. Dedup keeps the store small; see decision 0002.
+        let evidence_id = if capture {
+            let log_text = format!("$ {verify_command}\n{stdout}{stderr}");
+            Some(self.capture_verify_log(&connection, id, &verify_command, &result, &log_text)?)
+        } else {
+            None
+        };
+
         Ok(StoryVerifyResult {
             command: verify_command,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout,
+            stderr,
             result,
+            evidence_id,
         })
     }
 
@@ -630,13 +820,19 @@ impl HarnessRepository for SqliteHarnessRepository {
                  WHERE id=?2;",
                 params![result, id],
             )?;
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            // Auto-capture like single `story verify`, so a story verified only
+            // in batch still gets the evidence pass-log that done-check requires.
+            let log_text = format!("$ {command}\n{stdout}{stderr}");
+            self.capture_verify_log(&connection, &id, &command, &result, &log_text)?;
             items.push(StoryVerifyAllItem {
                 id,
                 title,
                 command: Some(command),
                 result,
-                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                stdout,
+                stderr,
             });
         }
 
@@ -834,13 +1030,27 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn record_trace(&self, input: TraceInput) -> Result<i64> {
+        // Resume continuity: unfinished outcomes MUST carry a next-action hint
+        // (anti-TODO-graveyard). A completed outcome clears the live pointer.
+        let next_action = input
+            .next_action
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        let outcome = input.outcome.as_deref().unwrap_or_default();
+        if matches!(outcome, "partial" | "blocked" | "failed") && next_action.is_none() {
+            return Err(HarnessInfraError::NextActionRequired(outcome.to_owned()));
+        }
+
         let connection = self.open_existing()?;
         connection.execute(
             "INSERT INTO trace (
                 task_summary, intake_id, story_id, agent,
                 actions_taken, files_read, files_changed, decisions_made, errors,
-                outcome, duration_seconds, token_estimate, harness_friction, notes
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14);",
+                outcome, duration_seconds, token_estimate, harness_friction, notes,
+                next_action
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15);",
             params![
                 input.task_summary,
                 input.intake_id,
@@ -856,9 +1066,176 @@ impl HarnessRepository for SqliteHarnessRepository {
                 input.token_estimate,
                 input.friction,
                 input.notes,
+                next_action,
             ],
         )?;
-        Ok(connection.last_insert_rowid())
+        let trace_id = connection.last_insert_rowid();
+
+        // Sync the live story pointer when the trace is linked to a story.
+        if let Some(story_id) = input.story_id.as_deref() {
+            if outcome == "completed" {
+                connection.execute(
+                    "UPDATE story SET next_action = NULL, next_action_at = NULL WHERE id = ?1;",
+                    params![story_id],
+                )?;
+            } else if let Some(action) = next_action.as_deref() {
+                connection.execute(
+                    "UPDATE story
+                     SET next_action = ?1, next_action_at = datetime('now')
+                     WHERE id = ?2;",
+                    params![action, story_id],
+                )?;
+            }
+        }
+
+        Ok(trace_id)
+    }
+
+    fn add_evidence(&self, input: EvidenceAddInput) -> Result<EvidenceAddResult> {
+        let kind = evidence::validate_kind(&input.kind)?;
+        let source = evidence::validate_source(&input.source)?;
+        if input.story_id.is_none() && input.trace_id.is_none() {
+            return Err(evidence::EvidenceValidationError::MissingAnchor.into());
+        }
+
+        // Resolve the artifact path (relative paths anchor at the repo root).
+        let raw_path = Path::new(&input.path);
+        let abs_source = if raw_path.is_absolute() {
+            raw_path.to_path_buf()
+        } else {
+            self.repo_root.join(raw_path)
+        };
+        let bytes = fs::read(&abs_source)
+            .map_err(|_| HarnessInfraError::EvidenceArtifactMissing(input.path.clone()))?;
+        let sha256 = evidence::sha256_hex(&bytes);
+        let byte_len = bytes.len() as i64;
+        let file_name = abs_source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("artifact");
+        let digest = evidence::build_digest(&kind, file_name, &bytes);
+
+        let connection = self.open_existing()?;
+        // Validate the anchor BEFORE copying the artifact: otherwise a bad
+        // --story/--trace would leave an orphan file on disk and surface a raw
+        // foreign-key error instead of a clear message.
+        if let Some(story_id) = input.story_id.as_deref() {
+            let exists: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM story WHERE id = ?1);",
+                params![story_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(HarnessInfraError::EvidenceAnchorNotFound(format!(
+                    "story {story_id}"
+                )));
+            }
+        }
+        if let Some(trace_id) = input.trace_id {
+            let exists: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM trace WHERE id = ?1);",
+                params![trace_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(HarnessInfraError::EvidenceAnchorNotFound(format!(
+                    "trace {trace_id}"
+                )));
+            }
+        }
+        // Content dedup: an identical artifact under the same anchor+kind is not
+        // copied or re-inserted; we only refresh its recency.
+        let existing: Option<(i64, String)> = connection
+            .query_row(
+                "SELECT id, path FROM evidence
+                 WHERE sha256 = ?1 AND kind = ?2
+                   AND (story_id IS ?3) AND (trace_id IS ?4)
+                 ORDER BY id DESC LIMIT 1;",
+                params![sha256, kind, input.story_id, input.trace_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((id, path)) = existing {
+            connection.execute(
+                "UPDATE evidence SET created_at = datetime('now') WHERE id = ?1;",
+                params![id],
+            )?;
+            return Ok(EvidenceAddResult {
+                id,
+                path,
+                sha256,
+                bytes: byte_len,
+                deduped: true,
+            });
+        }
+
+        let stored_path = self.store_evidence_artifact(
+            input.story_id.as_deref(),
+            input.trace_id,
+            &kind,
+            &sha256,
+            file_name,
+            &bytes,
+        )?;
+        connection.execute(
+            "INSERT INTO evidence
+                (story_id, trace_id, kind, path, sha256, bytes, digest, command, result, source, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);",
+            params![
+                input.story_id,
+                input.trace_id,
+                kind,
+                stored_path,
+                sha256,
+                byte_len,
+                digest,
+                input.command,
+                input.result,
+                source,
+                input.notes,
+            ],
+        )?;
+        Ok(EvidenceAddResult {
+            id: connection.last_insert_rowid(),
+            path: stored_path,
+            sha256,
+            bytes: byte_len,
+            deduped: false,
+        })
+    }
+
+    fn list_evidence(&self, filter: EvidenceFilter) -> Result<Vec<EvidenceRecord>> {
+        let connection = self.open_existing()?;
+        let mut statement = connection.prepare(
+            "SELECT id, created_at, story_id, trace_id, kind, path, sha256, bytes,
+                    digest, command, result, source, notes
+             FROM evidence
+             WHERE (?1 IS NULL OR story_id = ?1)
+               AND (?2 IS NULL OR trace_id = ?2)
+               AND (?3 IS NULL OR kind = ?3)
+             ORDER BY id DESC;",
+        )?;
+        let rows = statement.query_map(
+            params![filter.story_id, filter.trace_id, filter.kind],
+            |row| {
+                Ok(EvidenceRecord {
+                    id: row.get(0)?,
+                    created_at: row.get(1)?,
+                    story_id: row.get(2)?,
+                    trace_id: row.get(3)?,
+                    kind: row.get(4)?,
+                    path: row.get(5)?,
+                    sha256: row.get(6)?,
+                    bytes: row.get(7)?,
+                    digest: row.get(8)?,
+                    command: row.get(9)?,
+                    result: row.get(10)?,
+                    source: row.get(11)?,
+                    notes: row.get(12)?,
+                })
+            },
+        )?;
+        collect_rows(rows)
     }
 
     fn score_trace(&self, id: Option<i64>) -> Result<TraceScoreResult> {
@@ -1209,6 +1586,426 @@ impl HarnessRepository for SqliteHarnessRepository {
                 },
             )
             .map_err(HarnessInfraError::from)
+    }
+
+    fn query_status(&self, filter: StatusFilter) -> Result<StatusReport> {
+        let connection = self.open_existing()?;
+        let lane = filter.lane.as_deref();
+        let limit = filter.limit;
+
+        // ĐANG LÀM — in-progress stories, oldest first.
+        let mut active_stmt = connection.prepare(
+            "SELECT id, title, risk_lane, next_action FROM story
+             WHERE status = 'in_progress' AND (?1 IS NULL OR risk_lane = ?1)
+             ORDER BY created_at, id;",
+        )?;
+        let active_rows = active_stmt.query_map(params![lane], |row| {
+            Ok(StatusStory {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                lane: row.get(2)?,
+                next_action: row.get(3)?,
+            })
+        })?;
+        let active = StatusSection::capped(collect_rows(active_rows)?, limit);
+
+        // CẦN PROOF — implemented but not verified-pass, or no proof flags set.
+        let mut proof_stmt = connection.prepare(
+            "SELECT id, title, risk_lane, last_verified_result,
+                    unit_proof, integration_proof, e2e_proof, platform_proof
+             FROM story
+             WHERE status = 'implemented' AND (?1 IS NULL OR risk_lane = ?1)
+               AND (
+                 last_verified_result IS NULL
+                 OR last_verified_result <> 'pass'
+                 OR (unit_proof = 0 AND integration_proof = 0
+                     AND e2e_proof = 0 AND platform_proof = 0)
+               )
+             ORDER BY id;",
+        )?;
+        let proof_rows = proof_stmt.query_map(params![lane], |row| {
+            Ok(StatusProofGap {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                lane: row.get(2)?,
+                verify_result: row.get(3)?,
+                unit: row.get(4)?,
+                integration: row.get(5)?,
+                e2e: row.get(6)?,
+                platform: row.get(7)?,
+            })
+        })?;
+        let needs_proof = StatusSection::capped(collect_rows(proof_rows)?, limit);
+
+        // RESUME — most recent unfinished traces carrying a next-action hint.
+        let mut resume_stmt = connection.prepare(
+            "SELECT id, story_id, outcome, next_action, task_summary FROM trace
+             WHERE outcome IN ('partial','blocked','failed')
+             ORDER BY id DESC;",
+        )?;
+        let resume_rows = resume_stmt.query_map([], |row| {
+            Ok(StatusResume {
+                trace_id: row.get(0)?,
+                story_id: row.get(1)?,
+                outcome: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                next_action: row.get(3)?,
+                task_summary: row.get(4)?,
+            })
+        })?;
+        let resume = StatusSection::capped(collect_rows(resume_rows)?, limit);
+
+        // BACKLOG MỞ — open items, high-risk first.
+        let mut backlog_stmt = connection.prepare(
+            "SELECT id, risk, title, predicted_impact FROM backlog
+             WHERE status IN ('proposed','accepted')
+               AND (?1 IS NULL OR risk = ?1)
+             ORDER BY CASE risk WHEN 'high_risk' THEN 0 WHEN 'normal' THEN 1
+                                WHEN 'tiny' THEN 2 ELSE 3 END, id;",
+        )?;
+        let backlog_rows = backlog_stmt.query_map(params![lane], |row| {
+            Ok(StatusBacklogItem {
+                id: row.get(0)?,
+                risk: row.get(1)?,
+                title: row.get(2)?,
+                predicted: row.get(3)?,
+            })
+        })?;
+        let backlog = StatusSection::capped(collect_rows(backlog_rows)?, limit);
+
+        // INTERVENTION — most recent.
+        let mut intervention_stmt = connection.prepare(
+            "SELECT id, type, source, trace_id, story_id FROM intervention
+             ORDER BY id DESC;",
+        )?;
+        let intervention_rows = intervention_stmt.query_map([], |row| {
+            Ok(StatusInterventionItem {
+                id: row.get(0)?,
+                intervention_type: row.get(1)?,
+                source: row.get(2)?,
+                trace_id: row.get(3)?,
+                story_id: row.get(4)?,
+            })
+        })?;
+        let interventions = StatusSection::capped(collect_rows(intervention_rows)?, limit);
+
+        // HOẠT ĐỘNG GẦN — most recent traces.
+        let mut recent_stmt = connection.prepare(
+            "SELECT id, outcome, task_summary FROM trace ORDER BY id DESC;",
+        )?;
+        let recent_rows = recent_stmt.query_map([], |row| {
+            Ok(StatusActivity {
+                trace_id: row.get(0)?,
+                outcome: row.get(1)?,
+                task_summary: row.get(2)?,
+            })
+        })?;
+        let recent = StatusSection::capped(collect_rows(recent_rows)?, limit);
+
+        // Drift header — reuse the audit entropy score (one line, no full audit
+        // print). drift_groups = number of audit categories with findings.
+        let audit = self.audit()?;
+        let drift_groups = [
+            audit.orphaned_stories.len(),
+            audit.unverified_stories.len(),
+            audit.unverified_decisions.len(),
+            audit.backlog_without_outcomes.len(),
+            audit.stale_stories.len(),
+            audit.broken_tools.len(),
+        ]
+        .iter()
+        .filter(|count| **count > 0)
+        .count() as i64;
+
+        Ok(StatusReport {
+            entropy_score: audit.entropy_score(),
+            drift_groups,
+            active,
+            needs_proof,
+            resume,
+            backlog,
+            interventions,
+            recent,
+        })
+    }
+
+    fn query_recap(&self, filter: RecapFilter) -> Result<RecapReport> {
+        let connection = self.open_existing()?;
+
+        // Build the trace selection from the provided filters (all ANDed).
+        let mut clauses: Vec<String> = Vec::new();
+        let mut binds: Vec<String> = Vec::new();
+        if let Some(story) = filter.story_id.as_deref() {
+            clauses.push(format!("story_id = ?{}", binds.len() + 1));
+            binds.push(story.to_owned());
+        }
+        if let Some(prefix) = filter.epic_prefix.as_deref() {
+            clauses.push(format!("story_id LIKE ?{}", binds.len() + 1));
+            binds.push(format!("{}%", prefix.replace('%', "\\%")));
+        }
+        if let Some(since) = filter.since.as_deref() {
+            clauses.push(format!("created_at >= ?{}", binds.len() + 1));
+            binds.push(since.to_owned());
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
+            "SELECT id, created_at, outcome, files_changed, decisions_made, harness_friction
+             FROM trace {where_clause} ORDER BY id;"
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let bind_refs: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|value| value as &dyn rusqlite::ToSql).collect();
+        let rows = statement.query_map(bind_refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        let traces = collect_rows(rows)?;
+
+        let mut report = RecapReport {
+            scope: recap_scope(&filter),
+            first_at: None,
+            last_at: None,
+            trace_count: traces.len() as i64,
+            completed: 0,
+            partial: 0,
+            blocked: 0,
+            failed: 0,
+            files: Vec::new(),
+            friction: Vec::new(),
+            decisions: Vec::new(),
+            interventions: Vec::new(),
+        };
+
+        let mut file_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut friction_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut decisions: BTreeSet<String> = BTreeSet::new();
+        let mut trace_ids: BTreeSet<i64> = BTreeSet::new();
+
+        for (id, created_at, outcome, files_changed, decisions_made, friction) in &traces {
+            trace_ids.insert(*id);
+            if report.first_at.is_none() {
+                report.first_at = Some(created_at.clone());
+            }
+            report.last_at = Some(created_at.clone());
+
+            match outcome.as_deref() {
+                Some("completed") => report.completed += 1,
+                Some("partial") => report.partial += 1,
+                Some("blocked") => report.blocked += 1,
+                Some("failed") => report.failed += 1,
+                _ => {}
+            }
+            for file in jsonish_list(files_changed.as_deref()) {
+                *file_counts.entry(file).or_insert(0) += 1;
+            }
+            for decision in jsonish_list(decisions_made.as_deref()) {
+                if decision != "none" {
+                    decisions.insert(decision);
+                }
+            }
+            if let Some(text) = friction.as_deref() {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("none") {
+                    let component = attribute_friction_component(trimmed);
+                    *friction_counts.entry(component).or_insert(0) += 1;
+                }
+            }
+        }
+
+        report.files = top_counts(file_counts, 10);
+        report.friction = top_counts(friction_counts, RESPONSIBILITIES.len());
+        report.decisions = decisions.into_iter().collect();
+
+        // Interventions attached to the matching traces, grouped by type.
+        let mut intervention_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut intervention_stmt =
+            connection.prepare("SELECT type, trace_id FROM intervention;")?;
+        let intervention_rows = intervention_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        for (kind, trace_id) in collect_rows(intervention_rows)? {
+            if let Some(trace_id) = trace_id {
+                if trace_ids.contains(&trace_id) {
+                    *intervention_counts.entry(kind).or_insert(0) += 1;
+                }
+            }
+        }
+        report.interventions = top_counts(intervention_counts, usize::MAX);
+
+        Ok(report)
+    }
+
+    fn done_check(
+        &self,
+        story_id: Option<String>,
+        intake_id: Option<i64>,
+    ) -> Result<DoneCheckReport> {
+        let connection = self.open_existing()?;
+
+        // Resolve the target story. --story wins; --intake resolves via its
+        // linked story_id (and lends its lane when no story is linked yet).
+        let (resolved_story, intake_lane) = match (&story_id, intake_id) {
+            (Some(id), _) => (Some(id.clone()), None),
+            (None, Some(intake)) => {
+                let row: Option<(Option<String>, String)> = connection
+                    .query_row(
+                        "SELECT story_id, risk_lane FROM intake WHERE id = ?1;",
+                        params![intake],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                match row {
+                    Some((linked, lane)) => (linked, Some(lane)),
+                    None => return Err(HarnessInfraError::DoneCheckTargetMissing),
+                }
+            }
+            (None, None) => return Err(HarnessInfraError::DoneCheckTargetMissing),
+        };
+
+        let mut checks = Vec::new();
+
+        // Trace-link check applies to every lane and to intake-only targets.
+        let trace_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM trace WHERE (?1 IS NOT NULL AND story_id = ?1)
+                                          OR (?2 IS NOT NULL AND intake_id = ?2);",
+            params![resolved_story, intake_id],
+            |row| row.get(0),
+        )?;
+        checks.push(DoneCheckItem {
+            label: "≥1 trace links the story/intake".to_owned(),
+            passed: trace_count >= 1,
+            detail: format!("{trace_count} linked trace(s)"),
+        });
+
+        let Some(story_id) = resolved_story else {
+            // Intake with no linked story: only the trace-link check applies.
+            return Ok(DoneCheckReport {
+                target: format!("intake#{}", intake_id.unwrap_or_default()),
+                lane: intake_lane.unwrap_or_else(|| "unknown".to_owned()),
+                checks,
+            });
+        };
+
+        let story: Option<DoneCheckStoryRow> = connection
+            .query_row(
+                "SELECT risk_lane, status, verify_command, last_verified_result,
+                        unit_proof, integration_proof, e2e_proof, platform_proof,
+                        next_action, contract_doc
+                 FROM story WHERE id = ?1;",
+                params![story_id],
+                |row| {
+                    Ok(DoneCheckStoryRow {
+                        lane: row.get(0)?,
+                        status: row.get(1)?,
+                        verify_command: row.get(2)?,
+                        last_verified: row.get(3)?,
+                        unit: row.get(4)?,
+                        integration: row.get(5)?,
+                        e2e: row.get(6)?,
+                        platform: row.get(7)?,
+                        next_action: row.get(8)?,
+                        contract_doc: row.get(9)?,
+                    })
+                },
+            )
+            .optional()?;
+        let Some(DoneCheckStoryRow {
+            lane,
+            status,
+            verify_command,
+            last_verified,
+            unit,
+            integration,
+            e2e,
+            platform,
+            next_action,
+            contract_doc,
+        }) = story
+        else {
+            return Err(HarnessInfraError::StoryNotFound(story_id));
+        };
+
+        // tiny only needs a linked trace; normal/high-risk add the proof gates.
+        if lane != "tiny" {
+            checks.push(DoneCheckItem {
+                label: "story.status == 'implemented'".to_owned(),
+                passed: status == "implemented",
+                detail: format!("status = {status}"),
+            });
+
+            let has_command = verify_command
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty());
+            let verified_pass = has_command && last_verified.as_deref() == Some("pass");
+            checks.push(DoneCheckItem {
+                label: "verify_command set & last_verified_result == 'pass'".to_owned(),
+                passed: verified_pass,
+                detail: format!(
+                    "command={}, last_verified={}",
+                    if has_command { "yes" } else { "no" },
+                    last_verified.as_deref().unwrap_or("none")
+                ),
+            });
+
+            let evidence_pass: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM evidence
+                 WHERE story_id = ?1 AND kind = 'log' AND result = 'pass';",
+                params![story_id],
+                |row| row.get(0),
+            )?;
+            checks.push(DoneCheckItem {
+                label: "evidence 'log' pass row exists".to_owned(),
+                passed: evidence_pass >= 1,
+                detail: format!("{evidence_pass} pass log(s)"),
+            });
+
+            let proof_total = unit + integration + e2e + platform;
+            checks.push(DoneCheckItem {
+                label: "proof recorded (≥1 matrix flag)".to_owned(),
+                passed: proof_total >= 1,
+                detail: format!("unit={unit} integ={integration} e2e={e2e} plat={platform}"),
+            });
+
+            let next_cleared = next_action
+                .as_deref()
+                .map(str::trim)
+                .map(|value| value.is_empty())
+                .unwrap_or(true);
+            checks.push(DoneCheckItem {
+                label: "story.next_action cleared".to_owned(),
+                passed: next_cleared,
+                detail: next_action
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| format!("still set: {value}"))
+                    .unwrap_or_else(|| "cleared".to_owned()),
+            });
+        }
+
+        if lane == "high_risk" {
+            let (anchors_ok, detail) = self.high_risk_anchors_present(contract_doc.as_deref());
+            checks.push(DoneCheckItem {
+                label: "4 high-risk packet anchors exist".to_owned(),
+                passed: anchors_ok,
+                detail,
+            });
+        }
+
+        Ok(DoneCheckReport {
+            target: format!("story={story_id}"),
+            lane,
+            checks,
+        })
     }
 
     fn audit(&self) -> Result<AuditResult> {
@@ -1913,6 +2710,70 @@ fn verifier_shell() -> (&'static str, &'static str) {
     }
 }
 
+/// Human-readable scope label for a recap (e.g. `story=US-006`, `epic=US-00`).
+fn recap_scope(filter: &RecapFilter) -> String {
+    let mut parts = Vec::new();
+    if let Some(story) = filter.story_id.as_deref() {
+        parts.push(format!("story={story}"));
+    }
+    if let Some(prefix) = filter.epic_prefix.as_deref() {
+        parts.push(format!("epic={prefix}"));
+    }
+    if let Some(since) = filter.since.as_deref() {
+        parts.push(format!("since={since}"));
+    }
+    if parts.is_empty() {
+        "all".to_owned()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+/// Attribute a friction string to one of the 11 Components by substring match,
+/// falling back to "Unattributed". Deterministic: first declared match wins.
+fn attribute_friction_component(text: &str) -> String {
+    let lower = text.to_lowercase();
+    for responsibility in RESPONSIBILITIES {
+        if lower.contains(&responsibility.to_lowercase()) {
+            return (*responsibility).to_owned();
+        }
+    }
+    "Unattributed".to_owned()
+}
+
+/// Turn a count map into a deterministically ordered list: count desc, then key
+/// ascending, capped to `limit` entries.
+fn top_counts(counts: BTreeMap<String, i64>, limit: usize) -> Vec<RecapCount> {
+    let mut items: Vec<RecapCount> = counts
+        .into_iter()
+        .map(|(key, count)| RecapCount { key, count })
+        .collect();
+    items.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.key.cmp(&b.key)));
+    items.truncate(limit);
+    items
+}
+
+/// Make a path segment filesystem-safe: keep alphanumerics and `-_.`,
+/// replacing everything else with `_`.
+fn sanitize_key(value: &str) -> String {
+    let cleaned: String = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "item".to_owned()
+    } else {
+        cleaned
+    }
+}
+
 fn is_decision_file_name(file_name: &str) -> bool {
     let Some((prefix, _)) = file_name.split_once('-') else {
         return false;
@@ -1921,6 +2782,8 @@ fn is_decision_file_name(file_name: &str) -> bool {
 }
 
 const KNOWLEDGE_IGNORE_DIRS: &[&str] = &["target", "node_modules", "dist", "build", "vendor"];
+/// Gitignored runtime stores excluded from the knowledge map by exact path.
+const KNOWLEDGE_IGNORE_PATHS: &[&str] = &["_harness/evidence"];
 const KNOWLEDGE_PYTHON_ARTIFACT_DIRS: &[&str] = &[
     "__pycache__",
     ".pytest_cache",
@@ -2040,8 +2903,14 @@ impl KnowledgeWorkspace {
                 if is_ignored_knowledge_entry(&name, true) {
                     continue;
                 }
+                let relative = format!("{}/{}", parent.name, name);
+                // The evidence store is a gitignored runtime artifact (decision
+                // 0002), not repo structure — keep it out of the knowledge map.
+                if KNOWLEDGE_IGNORE_PATHS.contains(&relative.as_str()) {
+                    continue;
+                }
                 subdirectories.push(TopLevelEntry {
-                    name: format!("{}/{}", parent.name, name),
+                    name: relative,
                     is_dir: true,
                 });
             }
@@ -2250,7 +3119,10 @@ fn is_python_generated_file(name: &str) -> bool {
 }
 
 fn is_db_artifact(name: &str) -> bool {
-    name.ends_with(".db")
+    // Match the SQLite database and its WAL/SHM sidecars (the sidecars exist
+    // only while a connection is open — e.g. when a verify command runs while
+    // the CLI holds the db — and must not be reported as repo structure).
+    name.ends_with(".db") || name.ends_with(".db-wal") || name.ends_with(".db-shm")
 }
 
 fn sql_value_to_string(value: ValueRef<'_>) -> String {
@@ -2307,11 +3179,12 @@ mod tests {
         assert_eq!(repository.query_stats().unwrap().intakes, 0);
         let connection = repository.open_existing().unwrap();
         let schema_version = SqliteHarnessRepository::schema_version(&connection).unwrap();
-        assert_eq!(schema_version, 5);
+        assert_eq!(schema_version, 7);
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
         assert!(story_columns.contains(&"last_verified_result".to_owned()));
+        assert!(story_columns.contains(&"next_action".to_owned()));
     }
 
     #[test]
@@ -2324,11 +3197,11 @@ mod tests {
         let result = repository.migrate().unwrap();
 
         assert_eq!(result.current_version, 1);
-        assert_eq!(result.applied, vec![2, 3, 4, 5]);
+        assert_eq!(result.applied, vec![2, 3, 4, 5, 6, 7]);
         let connection = repository.open_existing().unwrap();
         assert_eq!(
             SqliteHarnessRepository::schema_version(&connection).unwrap(),
-            5
+            7
         );
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
@@ -2378,7 +3251,8 @@ mod tests {
         drop(connection);
 
         // Upgrade: migration 005 must infer kind from the command prefix.
-        assert_eq!(repository.migrate().unwrap().applied, vec![5]);
+        // (006/007 also apply now; 005 is the one under test.)
+        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6, 7]);
         let connection = repository.open_existing().unwrap();
         let kind_of = |name: &str| -> String {
             connection
@@ -2507,6 +3381,7 @@ mod tests {
                 e2e: None,
                 platform: None,
                 verify_command: Some("npm test".to_owned()),
+                next_action: None,
             })
             .unwrap();
 
@@ -2517,6 +3392,644 @@ mod tests {
                 .verify_command
                 .as_deref(),
             Some("npm test")
+        );
+    }
+
+    fn story_next_action(repository: &SqliteHarnessRepository, id: &str) -> Option<String> {
+        let connection = repository.open_existing().unwrap();
+        connection
+            .query_row(
+                "SELECT next_action FROM story WHERE id=?1;",
+                params![id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .unwrap()
+    }
+
+    fn next_action_trace(outcome: &str, next_action: Option<&str>) -> TraceInput {
+        TraceInput {
+            task_summary: format!("trace {outcome}"),
+            intake_id: None,
+            story_id: Some("US-NA".to_owned()),
+            agent: None,
+            outcome: Some(outcome.to_owned()),
+            duration_seconds: None,
+            token_estimate: None,
+            friction: None,
+            notes: None,
+            next_action: next_action.map(str::to_owned),
+            actions: CsvList::from_optional(None),
+            files_read: CsvList::from_optional(None),
+            files_changed: CsvList::from_optional(None),
+            decisions: CsvList::from_optional(None),
+            errors: CsvList::from_optional(None),
+        }
+    }
+
+    fn temp_repo_repository() -> (TempDir, PathBuf, SqliteHarnessRepository) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_root = temp_dir.path().join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        let schema_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .to_path_buf()
+            .join("scripts/schema");
+        let repository = SqliteHarnessRepository::new(
+            repo_root.clone(),
+            temp_dir.path().join("harness.db"),
+            schema_root,
+        );
+        (temp_dir, repo_root, repository)
+    }
+
+    #[test]
+    fn evidence_add_hashes_copies_and_lists() {
+        let (_temp_dir, repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+        repository
+            .add_story(StoryAddInput {
+                id: "US-EV".to_owned(),
+                title: "Evidence story".to_owned(),
+                risk_lane: RiskLane::HighRisk,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let artifact = repo_root.join("sample.log");
+        fs::write(&artifact, b"hello evidence\nsecond line\n").unwrap();
+        let expected_sha = evidence::sha256_hex(b"hello evidence\nsecond line\n");
+
+        let result = repository
+            .add_evidence(EvidenceAddInput {
+                kind: "log".to_owned(),
+                path: "sample.log".to_owned(),
+                story_id: Some("US-EV".to_owned()),
+                trace_id: None,
+                command: Some("cargo test".to_owned()),
+                source: "agent".to_owned(),
+                result: Some("pass".to_owned()),
+                notes: None,
+            })
+            .unwrap();
+
+        assert_eq!(result.sha256, expected_sha);
+        assert_eq!(result.bytes, 27);
+        assert!(!result.deduped);
+        assert!(repo_root.join(&result.path).exists());
+        assert!(result.path.starts_with("_harness/evidence/US-EV/"));
+
+        let listed = repository
+            .list_evidence(EvidenceFilter {
+                story_id: Some("US-EV".to_owned()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].sha256, expected_sha);
+        assert_eq!(listed[0].result.as_deref(), Some("pass"));
+
+        // Identical content under the same anchor dedups (no second row).
+        let again = repository
+            .add_evidence(EvidenceAddInput {
+                kind: "log".to_owned(),
+                path: "sample.log".to_owned(),
+                story_id: Some("US-EV".to_owned()),
+                trace_id: None,
+                command: None,
+                source: "agent".to_owned(),
+                result: None,
+                notes: None,
+            })
+            .unwrap();
+        assert!(again.deduped);
+        assert_eq!(again.id, result.id);
+        assert_eq!(
+            repository
+                .list_evidence(EvidenceFilter {
+                    story_id: Some("US-EV".to_owned()),
+                    ..Default::default()
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn db_sidecars_are_treated_as_db_artifacts() {
+        // WAL/SHM sidecars appear while a verify command runs with the db open;
+        // they must not be reported as new repo structure by knowledge check.
+        assert!(is_db_artifact("harness.db"));
+        assert!(is_db_artifact("harness.db-wal"));
+        assert!(is_db_artifact("harness.db-shm"));
+        assert!(!is_db_artifact("notes.md"));
+    }
+
+    #[test]
+    fn done_check_is_lane_aware() {
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+
+        // tiny: a single linked trace is enough.
+        repository
+            .add_story(StoryAddInput {
+                id: "US-TINY".to_owned(),
+                title: "Tiny story".to_owned(),
+                risk_lane: RiskLane::Tiny,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        repository
+            .record_trace(TraceInput {
+                task_summary: "tiny work done".to_owned(),
+                intake_id: None,
+                story_id: Some("US-TINY".to_owned()),
+                agent: None,
+                outcome: Some("completed".to_owned()),
+                duration_seconds: None,
+                token_estimate: None,
+                friction: None,
+                notes: None,
+                next_action: None,
+                actions: CsvList::from_optional(None),
+                files_read: CsvList::from_optional(None),
+                files_changed: CsvList::from_optional(None),
+                decisions: CsvList::from_optional(None),
+                errors: CsvList::from_optional(None),
+            })
+            .unwrap();
+        let tiny = repository
+            .done_check(Some("US-TINY".to_owned()), None)
+            .unwrap();
+        assert_eq!(tiny.checks.len(), 1);
+        assert!(tiny.passed());
+
+        // normal with nothing done fails.
+        repository
+            .add_story(StoryAddInput {
+                id: "US-NORM".to_owned(),
+                title: "Normal story".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: Some("echo ok".to_owned()),
+                notes: None,
+            })
+            .unwrap();
+        let unfinished = repository
+            .done_check(Some("US-NORM".to_owned()), None)
+            .unwrap();
+        assert!(!unfinished.passed());
+
+        // Drive every normal gate to green.
+        repository
+            .record_trace(TraceInput {
+                task_summary: "implemented normal story".to_owned(),
+                intake_id: None,
+                story_id: Some("US-NORM".to_owned()),
+                agent: None,
+                outcome: Some("completed".to_owned()),
+                duration_seconds: None,
+                token_estimate: None,
+                friction: None,
+                notes: None,
+                next_action: None,
+                actions: CsvList::from_optional(None),
+                files_read: CsvList::from_optional(None),
+                files_changed: CsvList::from_optional(None),
+                decisions: CsvList::from_optional(None),
+                errors: CsvList::from_optional(None),
+            })
+            .unwrap();
+        repository.verify_story("US-NORM", true).unwrap();
+        repository
+            .update_story(StoryUpdateInput {
+                id: "US-NORM".to_owned(),
+                status: Some("implemented".to_owned()),
+                evidence: None,
+                unit: Some(BoolFlag(1)),
+                integration: None,
+                e2e: None,
+                platform: None,
+                verify_command: None,
+                next_action: None,
+            })
+            .unwrap();
+        let finished = repository
+            .done_check(Some("US-NORM".to_owned()), None)
+            .unwrap();
+        assert!(
+            finished.passed(),
+            "all normal gates should be green: {:?}",
+            finished.checks
+        );
+    }
+
+    #[test]
+    fn query_recap_rolls_up_outcomes_files_and_friction() {
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+        repository
+            .add_story(StoryAddInput {
+                id: "US-RC".to_owned(),
+                title: "Recap story".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let trace = |outcome: &str, files: Option<&str>, friction: Option<&str>, next: Option<&str>| TraceInput {
+            task_summary: format!("recap {outcome}"),
+            intake_id: None,
+            story_id: Some("US-RC".to_owned()),
+            agent: None,
+            outcome: Some(outcome.to_owned()),
+            duration_seconds: None,
+            token_estimate: None,
+            friction: friction.map(str::to_owned),
+            notes: None,
+            next_action: next.map(str::to_owned),
+            actions: CsvList::from_optional(None),
+            files_read: CsvList::from_optional(None),
+            files_changed: CsvList::from_optional(files.map(str::to_owned)),
+            decisions: CsvList::from_optional(None),
+            errors: CsvList::from_optional(None),
+        };
+
+        repository
+            .record_trace(trace(
+                "completed",
+                Some("src/foo.rs,src/bar.rs"),
+                Some("none"),
+                None,
+            ))
+            .unwrap();
+        repository
+            .record_trace(trace(
+                "partial",
+                Some("src/foo.rs"),
+                Some("Spec unclear. Attribution: Task specification."),
+                Some("finish schema"),
+            ))
+            .unwrap();
+        repository
+            .record_trace(trace("completed", Some("src/foo.rs"), Some("none"), None))
+            .unwrap();
+
+        let recap = repository
+            .query_recap(RecapFilter {
+                story_id: Some("US-RC".to_owned()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(recap.trace_count, 3);
+        assert_eq!(recap.completed, 2);
+        assert_eq!(recap.partial, 1);
+        // src/foo.rs touched in all three traces -> ranked first.
+        assert_eq!(recap.files[0].key, "src/foo.rs");
+        assert_eq!(recap.files[0].count, 3);
+        // Friction attributed to a real Component (one of the 11).
+        assert_eq!(recap.friction.len(), 1);
+        assert_eq!(recap.friction[0].key, "Task specification");
+        assert_eq!(recap.friction[0].count, 1);
+
+        // Determinism: identical db -> identical rollup.
+        let again = repository
+            .query_recap(RecapFilter {
+                story_id: Some("US-RC".to_owned()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(recap, again);
+    }
+
+    #[test]
+    fn query_status_handles_empty_db_and_caps_sections() {
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+
+        // Empty db: every section is empty and the call does not crash.
+        let empty = repository.query_status(StatusFilter::default()).unwrap();
+        assert_eq!(empty.active.total, 0);
+        assert!(empty.active.items.is_empty());
+        assert_eq!(empty.needs_proof.total, 0);
+        assert_eq!(empty.resume.total, 0);
+        assert_eq!(empty.recent.total, 0);
+
+        // Six in-progress stories with --limit 5 report total=6, 5 shown, 1 hidden.
+        for index in 0..6 {
+            repository
+                .add_story(StoryAddInput {
+                    id: format!("US-{index:03}"),
+                    title: format!("Story {index}"),
+                    risk_lane: RiskLane::Normal,
+                    contract_doc: None,
+                    verify_command: None,
+                    notes: None,
+                })
+                .unwrap();
+            repository
+                .update_story(StoryUpdateInput {
+                    id: format!("US-{index:03}"),
+                    status: Some("in_progress".to_owned()),
+                    evidence: None,
+                    unit: None,
+                    integration: None,
+                    e2e: None,
+                    platform: None,
+                    verify_command: None,
+                    next_action: None,
+                })
+                .unwrap();
+        }
+        let capped = repository
+            .query_status(StatusFilter {
+                lane: None,
+                limit: Some(5),
+            })
+            .unwrap();
+        assert_eq!(capped.active.total, 6);
+        assert_eq!(capped.active.items.len(), 5);
+        assert_eq!(capped.active.hidden(), 1);
+
+        // --full removes the cap.
+        let full = repository
+            .query_status(StatusFilter {
+                lane: None,
+                limit: None,
+            })
+            .unwrap();
+        assert_eq!(full.active.items.len(), 6);
+
+        // Lane filter narrows story-derived sections.
+        let high = repository
+            .query_status(StatusFilter {
+                lane: Some("high_risk".to_owned()),
+                limit: Some(5),
+            })
+            .unwrap();
+        assert_eq!(high.active.total, 0);
+    }
+
+    #[test]
+    fn verify_auto_capture_keeps_last_and_keeps_fail_then_pass() {
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+        let set_cmd = |command: &str| {
+            repository
+                .update_story(StoryUpdateInput {
+                    id: "US-CAP".to_owned(),
+                    status: None,
+                    evidence: None,
+                    unit: None,
+                    integration: None,
+                    e2e: None,
+                    platform: None,
+                    verify_command: Some(command.to_owned()),
+                    next_action: None,
+                })
+                .unwrap();
+        };
+        let logs = || {
+            repository
+                .list_evidence(EvidenceFilter {
+                    story_id: Some("US-CAP".to_owned()),
+                    kind: Some("log".to_owned()),
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+
+        repository
+            .add_story(StoryAddInput {
+                id: "US-CAP".to_owned(),
+                title: "Capture story".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: Some("exit 1".to_owned()),
+                notes: None,
+            })
+            .unwrap();
+
+        // First fail captures one log row with result=fail.
+        let first = repository.verify_story("US-CAP", true).unwrap();
+        assert_eq!(first.result, "fail");
+        assert!(first.evidence_id.is_some());
+        assert_eq!(logs().len(), 1);
+        let first_id = first.evidence_id.unwrap();
+
+        // A different failing output replaces the prior fail row (keep-last).
+        set_cmd("echo changed; exit 1");
+        repository.verify_story("US-CAP", true).unwrap();
+        let after_replace = logs();
+        assert_eq!(after_replace.len(), 1);
+        assert_ne!(after_replace[0].id, first_id);
+
+        // Transition fail -> pass keeps BOTH rows (the fix evidence survives).
+        set_cmd("echo ok");
+        let pass = repository.verify_story("US-CAP", true).unwrap();
+        assert_eq!(pass.result, "pass");
+        let after_pass = logs();
+        assert_eq!(after_pass.len(), 2);
+        assert_eq!(
+            after_pass
+                .iter()
+                .filter(|r| r.result.as_deref() == Some("pass"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            after_pass
+                .iter()
+                .filter(|r| r.result.as_deref() == Some("fail"))
+                .count(),
+            1
+        );
+
+        // Re-running the same passing command dedups by content (no new row).
+        repository.verify_story("US-CAP", true).unwrap();
+        assert_eq!(logs().len(), 2);
+
+        // --no-capture records no evidence and adds no rows.
+        let no_cap = repository.verify_story("US-CAP", false).unwrap();
+        assert!(no_cap.evidence_id.is_none());
+        assert_eq!(logs().len(), 2);
+    }
+
+    #[test]
+    fn capture_keeps_both_when_identical_output_transitions_fail_to_pass() {
+        // Regression: dedup must be scoped by result. Byte-identical log text
+        // captured first as fail then as pass must yield TWO rows (one each),
+        // so done-check's pass-log gate can be satisfied.
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+        repository
+            .add_story(StoryAddInput {
+                id: "US-IDENT".to_owned(),
+                title: "Identical-output story".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let connection = repository.open_existing().unwrap();
+        let same_log = "$ run-tests\nfixed banner, same bytes\n";
+        repository
+            .capture_verify_log(&connection, "US-IDENT", "run-tests", "fail", same_log)
+            .unwrap();
+        repository
+            .capture_verify_log(&connection, "US-IDENT", "run-tests", "pass", same_log)
+            .unwrap();
+        drop(connection);
+
+        let logs = repository
+            .list_evidence(EvidenceFilter {
+                story_id: Some("US-IDENT".to_owned()),
+                kind: Some("log".to_owned()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(logs.len(), 2, "fail and pass logs must both survive");
+        assert_eq!(
+            logs.iter()
+                .filter(|r| r.result.as_deref() == Some("pass"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn evidence_add_requires_anchor_and_existing_file() {
+        let (_temp_dir, repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+
+        // Anchor that does not exist, with a file that DOES exist: must fail
+        // with a clear anchor error and must NOT leave an artifact behind.
+        let artifact = repo_root.join("orphan.log");
+        fs::write(&artifact, b"orphan candidate\n").unwrap();
+        let bad_anchor = repository
+            .add_evidence(EvidenceAddInput {
+                kind: "log".to_owned(),
+                path: "orphan.log".to_owned(),
+                story_id: Some("US-NOPE".to_owned()),
+                trace_id: None,
+                command: None,
+                source: "agent".to_owned(),
+                result: None,
+                notes: None,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            bad_anchor,
+            HarnessInfraError::EvidenceAnchorNotFound(_)
+        ));
+        assert!(
+            !repo_root.join("_harness/evidence").exists(),
+            "no artifact should be copied for a bad anchor"
+        );
+
+        let no_anchor = repository
+            .add_evidence(EvidenceAddInput {
+                kind: "log".to_owned(),
+                path: "missing.log".to_owned(),
+                story_id: None,
+                trace_id: None,
+                command: None,
+                source: "agent".to_owned(),
+                result: None,
+                notes: None,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            no_anchor,
+            HarnessInfraError::EvidenceValidation(
+                evidence::EvidenceValidationError::MissingAnchor
+            )
+        ));
+
+        let missing_file = repository
+            .add_evidence(EvidenceAddInput {
+                kind: "log".to_owned(),
+                path: "missing.log".to_owned(),
+                story_id: Some("US-X".to_owned()),
+                trace_id: None,
+                command: None,
+                source: "agent".to_owned(),
+                result: None,
+                notes: None,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            missing_file,
+            HarnessInfraError::EvidenceArtifactMissing(_)
+        ));
+    }
+
+    #[test]
+    fn next_action_is_enforced_for_unfinished_and_cleared_on_completed() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+        repository
+            .add_story(StoryAddInput {
+                id: "US-NA".to_owned(),
+                title: "Next-action story".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+
+        // partial/blocked/failed without --next-action is rejected.
+        for outcome in ["partial", "blocked", "failed"] {
+            let error = repository
+                .record_trace(next_action_trace(outcome, None))
+                .unwrap_err();
+            assert!(matches!(error, HarnessInfraError::NextActionRequired(_)));
+        }
+
+        // partial WITH next-action writes the live story pointer.
+        repository
+            .record_trace(next_action_trace("partial", Some("finish the parser")))
+            .unwrap();
+        assert_eq!(
+            story_next_action(&repository, "US-NA").as_deref(),
+            Some("finish the parser")
+        );
+
+        // completed clears the live pointer.
+        repository
+            .record_trace(next_action_trace("completed", None))
+            .unwrap();
+        assert_eq!(story_next_action(&repository, "US-NA"), None);
+
+        // story update can set the live pointer directly.
+        repository
+            .update_story(StoryUpdateInput {
+                id: "US-NA".to_owned(),
+                status: None,
+                evidence: None,
+                unit: None,
+                integration: None,
+                e2e: None,
+                platform: None,
+                verify_command: None,
+                next_action: Some("review with reviewer".to_owned()),
+            })
+            .unwrap();
+        assert_eq!(
+            story_next_action(&repository, "US-NA").as_deref(),
+            Some("review with reviewer")
         );
     }
 
@@ -2554,7 +4067,7 @@ mod tests {
                 notes: None,
             })
             .unwrap();
-        let pass = repository.verify_story("US-PASS").unwrap();
+        let pass = repository.verify_story("US-PASS", false).unwrap();
         assert_eq!(pass.result, "pass");
         assert_eq!(
             fs::canonicalize(fs::read_to_string(pwd_output).unwrap().trim()).unwrap(),
@@ -2579,7 +4092,7 @@ mod tests {
                 notes: None,
             })
             .unwrap();
-        let fail = repository.verify_story("US-FAIL").unwrap();
+        let fail = repository.verify_story("US-FAIL", false).unwrap();
         assert_eq!(fail.result, "fail");
         assert_eq!(
             repository
@@ -2601,7 +4114,7 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(
-            repository.verify_story("US-MISSING"),
+            repository.verify_story("US-MISSING", false),
             Err(HarnessInfraError::MissingStoryVerifyCommand(id)) if id == "US-MISSING"
         ));
     }
@@ -2795,6 +4308,7 @@ mod tests {
                 token_estimate: None,
                 friction: Some("none".to_owned()),
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(None),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -2861,6 +4375,7 @@ mod tests {
                 e2e: None,
                 platform: None,
                 verify_command: None,
+                next_action: None,
             })
             .unwrap();
         repository
@@ -2906,6 +4421,7 @@ mod tests {
                     token_estimate: None,
                     friction: Some("Context rules missed schema decision".to_owned()),
                     notes: None,
+                    next_action: None,
                     actions: CsvList::from_optional(Some("read".to_owned())),
                     files_read: CsvList::from_optional(Some("docs/HARNESS.md".to_owned())),
                     files_changed: CsvList::from_optional(Some(
@@ -2959,6 +4475,7 @@ mod tests {
                 e2e: None,
                 platform: None,
                 verify_command: None,
+                next_action: None,
             })
             .unwrap();
         assert_eq!(repository.query_matrix().unwrap()[0].unit, 1);
@@ -2999,6 +4516,7 @@ mod tests {
                 token_estimate: None,
                 friction: Some("none".to_owned()),
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(Some("one,two".to_owned())),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -3043,6 +4561,7 @@ mod tests {
                 token_estimate: None,
                 friction: None,
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(None),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -3061,6 +4580,7 @@ mod tests {
                 token_estimate: None,
                 friction: Some("Linked friction".to_owned()),
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(None),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -3079,6 +4599,7 @@ mod tests {
                 token_estimate: None,
                 friction: Some("Unlinked friction".to_owned()),
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(None),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -3305,6 +4826,7 @@ implemented
                 token_estimate: None,
                 friction: None,
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(None),
                 files_read: CsvList::from_optional(None),
                 files_changed: CsvList::from_optional(None),
@@ -3323,6 +4845,7 @@ implemented
                 token_estimate: None,
                 friction: Some("none".to_owned()),
                 notes: None,
+                next_action: None,
                 actions: CsvList::from_optional(Some("read,patched".to_owned())),
                 files_read: CsvList::from_optional(Some("PHASE3.md".to_owned())),
                 files_changed: CsvList::from_optional(Some(

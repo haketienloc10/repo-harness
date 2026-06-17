@@ -62,8 +62,9 @@ scripts/bin/harness-cli story update --id <id> \
 # Cấu hình / đổi lệnh verify
 scripts/bin/harness-cli story update --id <id> --verify "<command>"
 
-# Chạy verify (chỉ nhận story id)
+# Chạy verify (chỉ nhận story id) — tự ghi log vào evidence store (default-on)
 scripts/bin/harness-cli story verify <id>
+scripts/bin/harness-cli story verify <id> --no-capture   # bỏ ghi evidence (lần nháp)
 
 # Chạy TẤT CẢ verify command đã cấu hình (batch) — dùng trước merge / claim maturity / benchmark
 scripts/bin/harness-cli story verify-all
@@ -71,6 +72,11 @@ scripts/bin/harness-cli story verify-all
 
 - `story verify` chạy lệnh từ gốc repo, ghi `last_verified_at` +
   `last_verified_result`, thoát `0` nếu pass / `1` nếu fail.
+- **Auto-capture (default-on):** mỗi lần `story verify` tự ghi stdout+stderr vào
+  evidence store (`kind='log'`, kèm `command` + `result`) và in evidence id.
+  Dedup keep-last theo `(story, kind, result)` + sha256, NGOẠI LỆ `fail→pass`
+  giữ cả hai. ⇒ proof boolean `1` luôn có log tươi đỡ lưng. `--no-capture` chỉ
+  cho lần chạy nháp. Xem mục 5b (Evidence) và decision 0002.
 - `story verify-all` chạy mọi story có `verify_command`, in 1 kết quả/story, BỎ
   QUA story không cấu hình verify, và thoát `1` nếu BẤT KỲ story nào fail. BẮT
   BUỘC chạy trước khi merge, trước khi claim maturity (H4+), và trước benchmark
@@ -119,11 +125,18 @@ scripts/bin/harness-cli trace \
   --decisions "decision1,decision2" \
   --errors "none" \
   --friction "Mô tả. Attribution: <nguồn>." \
-  --notes "<text>"
+  --notes "<text>" \
+  --next-action "<việc kế tiếp>"
 ```
 
 - Độ sâu trường theo tier (lane) — xem `docs/TRACE_SPEC.md`. Lane càng cao,
   trace càng phải đầy đủ (actions, read, changed, intake/story, friction).
+- **`--next-action` (resume continuity):** BẮT BUỘC khi `--outcome` ∈
+  `{partial, blocked, failed}` (CLI từ chối rỗng, exit `!= 0`). Nếu trace có
+  `--story`, hint ghi luôn vào `story.next_action` và nổi lên ở RESUME của
+  `query status`. `--outcome completed` + `--story` ⇒ tự clear
+  `story.next_action`. Đặt con trỏ WIP sống trực tiếp:
+  `story update --id <id> --next-action "<text>"`.
 - Xem điểm trace in tự động ngay sau `trace`. Chỉ dùng `score-trace --id <id>`
   khi cần chấm lại một trace lịch sử cụ thể:
 
@@ -139,9 +152,36 @@ scripts/bin/harness-cli score-trace --id <id>
 scripts/bin/harness-cli score-context <trace-id>
 ```
 
+## 5b. Evidence (con trỏ artifact bền vững)
+
+Db giữ pointer + sha256 + digest; artifact thô nằm dưới `_harness/evidence/`
+(gitignored). Tên file content-addressed (`<kind>-<sha16><ext>`). Xem decision
+0002.
+
+```bash
+# Ghi một artifact (hash + copy vào store + chèn con trỏ)
+scripts/bin/harness-cli evidence add --kind log --path run.log --story US-003 \
+  --command "cargo test" --source agent --notes "manual sample"
+
+# Liệt kê (lọc theo story/trace/kind; --json để máy đọc)
+scripts/bin/harness-cli evidence list --story US-003 --json
+```
+
+- `--kind` ∈ `log|diff|screenshot|report|file`. Text kind (`log/diff/report`)
+  sinh digest head+tail (20+20 dòng); binary (`screenshot/file`) digest =
+  metadata `<kind>/<bytes>/<ext>`.
+- `--source` ∈ `agent|human|ci|reviewer` (default `agent`).
+- Phải có `--story` HOẶC `--trace` để neo artifact.
+- Content dedup theo `(story/trace, kind, sha256)`: artifact y hệt không tạo
+  file/row mới, chỉ làm tươi `created_at`.
+- `result` (`pass/fail`) chỉ tự set khi `story verify` auto-capture (mục 3); với
+  `evidence add` thủ công thì để trống.
+
 ## 6. Query (truy vấn durable layer)
 
 ```bash
+scripts/bin/harness-cli query status             # Read-Model: đang/đã/cần làm gì (mục 6b)
+scripts/bin/harness-cli query recap --story <id>  # Rollup trace tất định (mục 6b)
 scripts/bin/harness-cli query matrix             # Proof map dạng yes/no
 scripts/bin/harness-cli query matrix --numeric   # Dạng 1/0 để copy vào update
 scripts/bin/harness-cli query backlog --open     # Item proposed/accepted
@@ -155,6 +195,34 @@ scripts/bin/harness-cli query interventions      # Can thiệp đã ghi (xem m�
 scripts/bin/harness-cli query stats              # Thống kê tổng quan
 scripts/bin/harness-cli query sql "<SQL>"        # SQL thô trên harness.db (đọc)
 ```
+
+## 6b. Read-Model: `query status` & `query recap`
+
+VIEW dẫn xuất tất định — KHÔNG có schema riêng (xem decision 0001). Dùng ở GĐ0
+khi CHẠY workflow 7-GĐ (chung predicate với Execution Tracker, `00-AGENTS.md`
+§3).
+
+```bash
+# Session brief: ranked theo ưu tiên hành động (≤ ~1k token)
+scripts/bin/harness-cli query status
+scripts/bin/harness-cli query status --lane high-risk --limit 3
+scripts/bin/harness-cli query status --full        # bỏ trần dòng
+scripts/bin/harness-cli query status --json        # cho host/agent parse
+
+# Rollup trace tất định (count/group, KHÔNG tóm tắt ngữ nghĩa)
+scripts/bin/harness-cli query recap --story US-003
+scripts/bin/harness-cli query recap --epic US-00 --since 2026-06-01 --json
+```
+
+- `query status` sections (theo thứ tự ưu tiên): ĐANG LÀM (in_progress) · CẦN
+  PROOF (implemented chưa pass) · RESUME (partial/blocked/failed + next_action) ·
+  BACKLOG MỞ (high-risk trước) · INTERVENTION gần đây · HOẠT ĐỘNG GẦN. Header
+  có drift entropy. Mỗi section có trần `--limit` (mặc định 5) và in `(+N nữa)`
+  — "no silent caps". `--lane` lọc các section dẫn-xuất-từ-story.
+- `query recap` gom: outcome counts, files đụng (top theo tần suất), Friction
+  theo 11 Component (`docs/HARNESS_COMPONENTS.md`), decisions, intervention
+  counts. `--epic` khớp PREFIX của story id (vd `US-00` khớp US-001..US-009).
+  Tất định: cùng db → cùng output.
 
 ## 7. Backlog (vòng cải tiến từ friction)
 
@@ -293,3 +361,21 @@ scripts/bin/harness-cli propose --commit
   predicted impact, risk, suggested action, validation plan, confidence.
 - `--commit` chỉ tạo backlog item `proposed`; con người vẫn là cổng duyệt
   (review qua `query backlog --open`).
+
+## 12. Done-check (cổng hoàn thành GĐ7, lane-aware)
+
+Aggregator các check sẵn có + evidence/next-action thành một gate có exit code.
+KHÔNG thêm store. Dùng ở GĐ7 thay cho tự khẳng định "done".
+
+```bash
+scripts/bin/harness-cli done-check --story <id>     # exit 0=tất cả pass, 1=bất kỳ fail
+scripts/bin/harness-cli done-check --intake <id>    # resolve story qua intake.story_id
+scripts/bin/harness-cli done-check --story <id> --json
+```
+
+- In checklist `✔/✘` từng dòng kèm lý do; `--json` trả `{passed, checks:[...]}`.
+- Check theo lane: **mọi lane** cần ≥1 trace liên kết story/intake.
+  **normal/high-risk** thêm: `status=='implemented'`, `verify_command` set &
+  `last_verified_result=='pass'`, có evidence `log` pass, ≥1 proof flag = 1,
+  `story.next_action` đã clear. **high-risk** thêm: 4 neo packet
+  (overview/execplan/design/validation) tồn tại cạnh `contract_doc`.

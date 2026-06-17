@@ -41,6 +41,15 @@
   Purpose + Top-Level Structure của repo trước khi chọn Type và đếm Risk Flags
   (hiểu repo giúp phân loại đúng). Giới hạn freshness của `knowledge check`
   (đỏ/xanh nghĩa là gì): xem nguồn duy nhất ở `00-AGENTS.md` §1.
+- **0b. State digest (CÓ ĐIỀU KIỆN):** Nếu lượt này CHẠY workflow 7-GĐ (sẽ ghi
+  durable state) HOẶC câu hỏi là về _trạng thái dự án_ ("đang/đã/cần làm gì",
+  "story X tới đâu") ⇒ chạy `harness-cli query status` để định hướng (đang làm /
+  cần proof / resume / backlog / intervention / hoạt động gần). Khi tiếp tục một
+  story dài, thêm `harness-cli query recap --story <id>` để tiêu hóa lịch sử
+  trace. Nếu là hỏi-đáp về _nội dung_ code/doc một-bước (không chạy workflow) ⇒
+  BỎ QUA (chung predicate với Execution Tracker — xem `00-AGENTS.md` §3). Mơ hồ
+  nhưng đụng workflow ⇒ chạy (bất đối xứng chi phí: chạy thừa = vài trăm token;
+  quên = chọn nhầm story / nhân bản backlog).
 - **1. Chọn Type** (dùng khi → đích đến artifact):
   - `New spec` — biến spec người dùng thành docs harness-ready →
     `docs/product/*` kèm candidate epics và decisions.
@@ -208,6 +217,13 @@
   quả. Nếu `quality-gate-review` (cổng GĐ3→4) vừa chạy `story verify` và code
   KHÔNG đổi từ đó → tái dùng log, KHÔNG chạy lại. (Nếu verify fail, vẫn được
   sang Giai đoạn 5 để ghi Trace partial/failed).
+- **Bằng chứng bền vững (auto-capture, default-on):** `story verify <id>` TỰ ghi
+  stdout+stderr vào evidence store (`kind='log'`, kèm `command` + `result`),
+  dedup keep-last theo `(story, kind, result)` + sha256; in evidence id ở output.
+  Proof boolean `1` LUÔN có log tươi đỡ lưng — đây là điều `done-check` (GĐ7)
+  enforce. Cờ `--no-capture` chỉ cho lần chạy nháp. Artifact phi-verify
+  (screenshot E2E, report) ghi qua `harness-cli evidence add` và nêu evidence id
+  ở `--notes` của trace (GĐ5).
 
 ---
 
@@ -245,7 +261,14 @@
     _Project memory_, (5) _Task state_, (6) _Observability_, (7) _Failure
     attribution_, (8) _Verification_, (9) _Permissions_, (10) _Entropy
     auditing_, (11) _Intervention recording_. (Mô tả/trạng thái sâu:
-    `docs/HARNESS_COMPONENTS.md`.)
+    `docs/HARNESS_COMPONENTS.md`.) `query recap` gom Friction theo đúng 11
+    Responsibilities này.
+- **Next-action / Resume (BẮT BUỘC khi việc còn dở):** `IF [Outcome ∈
+  {partial, blocked, failed}]` ⇒ trace BẮT BUỘC có `--next-action "<việc kế
+  tiếp>"` (CLI từ chối rỗng, exit != 0). Nếu trace có `--story`, hint ghi luôn
+  vào `story.next_action` (con trỏ WIP sống) và nổi lên ở RESUME của `query
+  status`. `IF [Outcome == completed]` và có `--story` ⇒ `story.next_action` tự
+  được clear (resume hint không sống quá việc đã xong).
 - **Khi nào BẮT BUỘC ghi Friction:** (1) phải suy đoán một luật/nguồn-sự-thật
   còn thiếu; (2) validation không rõ, không chạy được, hoặc quá tốn kém; (3)
   doc/record/story cũ hoặc mâu thuẫn; (4) lộ ra bước thủ công lặp lại nên thành
@@ -311,6 +334,13 @@
 Một tác vụ chỉ được coi là xong khi: Đổi code xong (hoặc block đã log),
 Docs/Matrix cập nhật, Validation đã chạy, Trace đã lưu.
 
+- **[STOP] Cửa ải Done-check (cơ học, lane-aware):** BẮT BUỘC chạy
+  `harness-cli done-check --story <id>` (hoặc `--intake <id>`). Exit `!= 0` ⇒
+  CHƯA done: đọc checklist `✘`, sửa cho xanh hoặc ghi backlog (GĐ6) rồi mới
+  tuyên bố xong. Gate kiểm theo lane: tiny chỉ cần ≥1 trace liên kết;
+  normal/high-risk thêm `status=implemented`, `verify pass`, có evidence `log`
+  pass, ≥1 proof flag, `next_action` đã clear; high-risk thêm 4 neo packet. KHÔNG
+  tự khẳng định "done" bằng văn xuôi khi `done-check` chưa exit 0.
 - **Smoke audit (BẮT BUỘC trước khi đóng tác vụ):** chạy `harness-cli audit`.
   Nếu xuất hiện **Orphaned stories** (×10) hoặc **Unverified stories** (×5) do
   chính tác vụ này tạo ra → xử lý NGAY (link trace / verify / ghi backlog GĐ6)

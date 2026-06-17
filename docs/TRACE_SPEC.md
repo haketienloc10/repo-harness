@@ -5,7 +5,8 @@ defines the expected depth and format for each field so traces are useful for
 review, benchmark scoring, failure attribution, and future harness evolution.
 
 The current schema lives in `scripts/schema/001-init.sql` under the `trace`
-table. The schema is not changed by Phase 2.
+table, extended by `scripts/schema/006-next-action.sql` (the `next_action`
+resume hint).
 
 ## Field Reference
 
@@ -26,7 +27,8 @@ table. The schema is not changed by Phase 2.
 | `duration_seconds` | INTEGER | Detailed when available                         | Positive integer estimate or measured duration. Leave null if unknown.                                                                                        | `1800`                                                                                 |
 | `token_estimate`   | INTEGER | Detailed when available                         | Positive integer estimate. Leave null if unknown.                                                                                                             | `24000`                                                                                |
 | `harness_friction` | TEXT    | Standard+ when friction exists; Detailed always | Free text naming what was hard, missing, ambiguous, or repeated. Use `none` only when the agent actively checked and found no friction.                       | `New Phase 2 docs are not in installer copy list; recorded as out-of-scope follow-up.` |
-| `notes`            | TEXT    | Optional                                        | Free text for review context that does not fit other fields.                                                                                                  | `Trace covers US-003, US-004, US-005, and US-006.`                                     |
+| `notes`            | TEXT    | Optional                                        | Free text for review context that does not fit other fields. Cite captured evidence ids here (e.g. `evidence #12`) for non-verify artifacts.                  | `Trace covers US-003, US-004; screenshot evidence #12.`                                |
+| `next_action`      | TEXT    | REQUIRED when `outcome` ∈ {partial,blocked,failed} | Free text naming the concrete next step. CLI rejects empty for unfinished outcomes. With `--story`, mirrored into `story.next_action` (live WIP pointer).      | `Wire the evidence digest into done-check`                                             |
 
 ## Quality Tiers
 
@@ -95,6 +97,20 @@ It does not replace a durable decision record. If the work changes behavior,
 architecture, authorization, data ownership, API shape, or validation
 requirements, add a `docs/decisions/NNNN-*.md` file and record it with
 `scripts/bin/harness-cli decision add`.
+
+## Resume Continuity (`next_action`)
+
+`next_action` makes WIP survive across sessions (see migration 006, decision
+0001).
+
+- **Enforced:** `outcome` ∈ {`partial`, `blocked`, `failed`} ⇒ `--next-action`
+  is REQUIRED; the CLI rejects an empty value (exit `!= 0`). This holds at every
+  tier — even a Minimal tiny trace that ends unfinished must say what comes next.
+- **Live vs immutable:** `trace.next_action` is the immutable record at trace
+  time; with `--story`, the hint also writes `story.next_action` (the live WIP
+  pointer surfaced in `query status` RESUME).
+- **Cleared:** `outcome == completed` with `--story` clears
+  `story.next_action` — a resume hint does not outlive finished work.
 
 ## Lane Mapping
 

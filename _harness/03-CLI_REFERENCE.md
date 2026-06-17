@@ -36,16 +36,22 @@ harness-cli story add --id <id> --title "<text>" --lane <lane> [--verify "<cmd>"
 harness-cli decision add --id <id> --title "<text>" --doc docs/decisions/<file>.md [--verify "<cmd>"] [--predicted "<impact>"] [--notes "<text>"]
 
 # GĐ4 — Verify & Proof
-harness-cli story verify <id>        # exit 0=pass / 1=fail; ghi last_verified_*
+harness-cli story verify <id> [--no-capture]   # exit 0=pass / 1=fail; tự ghi log vào evidence (default-on)
 harness-cli story verify-all         # batch; exit 1 nếu BẤT KỲ story nào fail
-harness-cli story update --id <id> [--status <status>] [--unit 1 --integration 1 --e2e 0 --platform 0] [--verify "<cmd>"]
+harness-cli story update --id <id> [--status <status>] [--unit 1 --integration 1 --e2e 0 --platform 0] [--verify "<cmd>"] [--next-action "<text>"]
 harness-cli decision verify <id>
+
+# GĐ4/5 — Evidence (con trỏ artifact bền vững; file nằm dưới _harness/evidence/ gitignored)
+harness-cli evidence add --kind <log|diff|screenshot|report|file> --path <p> \
+  [--story <id>] [--trace <id>] [--command "<cmd>"] [--source <agent|human|ci|reviewer>] [--notes "<t>"]
+harness-cli evidence list [--story <id>] [--trace <id>] [--kind <k>] [--json]
 
 # GĐ5 — Trace & Intervention
 harness-cli trace --summary "<text>" --outcome <outcome> \
   [--intake <id> --story <id> --agent <name> --duration <s> --tokens <n> \
    --actions "a,b" --read "f1,f2" --changed "f1,f2" --decisions "d1,d2" \
-   --errors "none" --friction "Mô tả. Attribution: <nguồn>." --notes "<text>"]
+   --errors "none" --friction "Mô tả. Attribution: <nguồn>." --notes "<text>" \
+   --next-action "<text>"]   # BẮT BUỘC khi outcome ∈ {partial,blocked,failed}; completed tự clear story.next_action
 harness-cli intervention add --type <correction|override|escalation|approval> --description "<text>" --source <human|reviewer|ci|agent> [--trace <id>] [--story <id>] [--impact "<text>"]
 harness-cli score-trace --id <id>    # chấm lại trace lịch sử (điểm in sẵn sau `trace`)
 harness-cli score-context <trace-id> # advisory: đối chiếu files_read với context rules
@@ -56,6 +62,9 @@ harness-cli backlog close --id <id> --outcome "<actual>"
 harness-cli audit                    # drift + entropy score (thấp là tốt)
 harness-cli propose [--commit]       # --commit CHỈ tạo backlog `proposed`, người duyệt
 
+# GĐ7 — Done-check gate (lane-aware; exit 0=tất cả pass, 1=bất kỳ fail)
+harness-cli done-check [--story <id>] [--intake <id>] [--json]
+
 # Knowledge & Tool Registry
 harness-cli knowledge scaffold       # sau đó: npx prettier --write docs/KNOWLEDGE_INDEX.md
 harness-cli knowledge check          # cổng cơ học; exit != 0 nếu lỗi
@@ -65,6 +74,8 @@ harness-cli tool check [--name <name>] [--json]   # quét present/missing/unknow
 harness-cli tool remove --name <name>
 
 # Query
+harness-cli query status [--json] [--lane <lane>] [--limit <n>] [--full]   # Read-Model: đang/đã/cần làm gì (≤~1k token)
+harness-cli query recap [--story <id>] [--epic <prefix>] [--since <YYYY-MM-DD>] [--json]  # rollup tất định theo trace
 harness-cli query matrix [--numeric]       # proof map; --numeric để copy vào story update
 harness-cli query backlog --open|--closed
 harness-cli query intakes | decisions | traces | friction | stats

@@ -313,3 +313,21 @@ deterministic proposal generation. The repository may claim H5 partial only when
 those commands and docs are present and validated; it must not claim full H5
 until benchmark runs or trace outcomes prove the proposal loop improves the
 harness over time.
+
+## Read-Model & Evidence Interpretation (epic E02)
+
+The read-path upgrade (proposal `2026-06-17`, stories US-002..US-008) strengthens
+existing responsibilities WITHOUT claiming any new level:
+
+- `query status` + `query recap` (P1/P5) deepen **Observability** — a
+  deterministic, ranked read-model of being/been/to-do plus per-story rollups.
+  This is a derived view; it does NOT add the benchmark attribution full H3
+  still requires.
+- The `evidence` store + auto-capture (P2) strengthen **Verification**: a proof
+  boolean now has a durable log behind it, not just a boolean.
+- `done-check` (P4) hardens the Stage-7 **verification gate** against false-done.
+- `next_action` (P3) strengthens **Task state** (WIP continuity across sessions).
+
+Per the Maturity Anti-Hallucination rule, adding these commands does NOT itself
+raise H3→full or any level: a level claim still needs benchmark/trace evidence
+of a positive, attributable delta.
