@@ -95,7 +95,11 @@ hành** của Harness nằm gọn trong MỘT thư mục:
 liệu sản phẩm trong `docs/` (`product/`, `stories/`, `decisions/`, `wiki/`,
 `KNOWLEDGE_INDEX.md`) mà Harness chỉ quản lý ĐỊNH DẠNG; được sửa khi làm story.
 
-Trước khi làm việc, đọc: `_harness/00-AGENTS.md`
+**GATE (chặn cứng — không bỏ qua):** Hành động ĐẦU TIÊN của bạn trong repo này là
+đọc `_harness/00-AGENTS.md`. Khi chưa đọc xong: KHÔNG đọc code, KHÔNG lập kế
+hoạch, KHÔNG sửa/chạy bất cứ thứ gì. Áp dụng cho MỌI tác vụ — kể cả tác vụ trông
+như một dòng. File đó định nghĩa quy trình bắt buộc của repo; bỏ qua = output sai
+quy trình.
 EOF
   printf '%s\n' "$HARNESS_BLOCK_END"
 }
