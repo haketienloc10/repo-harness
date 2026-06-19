@@ -185,8 +185,9 @@
   (RED → GREEN → REFACTOR) TRƯỚC khi viết code logic. Danh sách nhóm task +
   ngoại lệ: xem Trigger của skill / registry `_harness/04-SKILLS.md`.
 - **[STOP] Cửa ải Review (GĐ3→GĐ4):** Trước khi sang Giai đoạn 4, Agent BẮT BUỘC
-  nạp và chạy skill `skills/quality-gate-review.md` — một vòng review độc lập 3
-  lens (Quality&Architecture / Security&Risk / Maintainability&Proof). KHÔNG
+  nạp và chạy skill `skills/quality-gate-review.md` — một vòng review độc lập 4
+  lens (Quality&Architecture / Security&Risk / Maintainability&Proof / Code
+  Economy). KHÔNG
   sang GĐ4 sign-off (đánh proof `1`) khi còn finding `blocking` chưa xử lý: hoặc
   sửa code rồi `story verify` lại pass, hoặc ghi backlog (GĐ6). Xem hợp đồng +
   cách nạp skill ở `_harness/04-SKILLS.md`.
