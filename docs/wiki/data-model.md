@@ -21,6 +21,16 @@ database files — the schema is the source of truth.
 - [`_harness/schema/004-intervention.sql`](../../_harness/schema/004-intervention.sql)
   — adds `intervention`: review / human / CI / agent interventions, separated
   from normal traces.
+- [`_harness/schema/005-tool-extensions.sql`](../../_harness/schema/005-tool-extensions.sql)
+  — extends `tool` with `kind`, `capability`, `scan_target`, `status`,
+  `checked_at` (declared intent + last-scanned presence).
+- [`_harness/schema/006-next-action.sql`](../../_harness/schema/006-next-action.sql)
+  — adds `story.next_action` (live resume pointer) and `trace.next_action`
+  (immutable record at trace time) for WIP continuity across sessions.
+- [`_harness/schema/007-evidence.sql`](../../_harness/schema/007-evidence.sql) —
+  adds `evidence`: a pointer table (path + SHA256 + digest) to gitignored local
+  artifacts under `_harness/evidence/` (see
+  [decision 0002](../../docs/decisions/0002-evidence-gitignore-pointer-store.md)).
 - [`crates/harness-cli/src/domain.rs`](../../crates/harness-cli/src/domain.rs) —
   the record structs and enums (`InputType`, `RiskLane`) mirroring these tables.
 
@@ -47,6 +57,7 @@ erDiagram
     int e2e_proof
     int platform_proof
     text verify_command
+    text next_action
   }
   decision {
     text id PK
@@ -71,6 +82,7 @@ erDiagram
     text story_id FK
     text outcome
     text harness_friction
+    text next_action
   }
   tool {
     text name PK
@@ -79,6 +91,9 @@ erDiagram
     text description
     text args
     text responsibility
+    text kind
+    text capability
+    text status
   }
   intervention {
     int id PK
@@ -89,33 +104,47 @@ erDiagram
     text source
     text impact
   }
+  evidence {
+    int id PK
+    text story_id FK
+    int trace_id FK
+    text kind
+    text path
+    text sha256
+    text result
+    text source
+  }
   intake ||--o{ trace : "intake_id"
   story ||--o{ trace : "story_id"
   story ||--o| intake : "story_id (soft link)"
   trace ||--o{ intervention : "trace_id"
+  story ||--o{ evidence : "story_id"
+  trace ||--o{ evidence : "trace_id"
 ```
 
 `trace.intake_id` references `intake(id)` and `trace.story_id` references
 `story(id)`; `intake.story_id` is a soft link to a story created from that
 intake, and `intervention.trace_id` / `intervention.story_id` link an
-intervention to the work it corrected. `schema_version` records which migrations
-have been applied (currently up to version 4) — the CLI reads `MAX(version)` to
-decide what to migrate.
+intervention to the work it corrected; `evidence.story_id` / `evidence.trace_id`
+link a stored artifact to the work that produced it. `schema_version` records
+which migrations have been applied (currently up to version 7) — the CLI reads
+`MAX(version)` to decide what to migrate.
 
 ## Public interface
 
 These tables are reached only through the [`harness-cli`](./harness-cli.md)
 commands, not edited directly:
 
-| Table          | Written by                | Read by (query view)        |
-| -------------- | ------------------------- | --------------------------- |
-| `intake`       | `intake`                  | `query intakes`             |
-| `story`        | `story add/update/verify` | `query matrix`              |
-| `decision`     | `decision add/verify`     | `query decisions`           |
-| `backlog`      | `backlog add/close`       | `query backlog`             |
-| `tool`         | `tool register/remove`    | `query tools`               |
-| `intervention` | `intervention add`        | `query interventions`       |
-| `trace`        | `trace`                   | `query traces` / `friction` |
+| Table          | Written by                                     | Read by (query view)        |
+| -------------- | ---------------------------------------------- | --------------------------- |
+| `intake`       | `intake`                                       | `query intakes`             |
+| `story`        | `story add/update/verify`                      | `query matrix`              |
+| `decision`     | `decision add/verify`                          | `query decisions`           |
+| `backlog`      | `backlog add/close`                            | `query backlog`             |
+| `tool`         | `tool register/remove`                         | `query tools`               |
+| `intervention` | `intervention add`                             | `query interventions`       |
+| `trace`        | `trace`                                        | `query traces` / `friction` |
+| `evidence`     | `evidence add` / `story verify` (auto-capture) | `evidence list`             |
 
 CHECK constraints encode the domain vocabulary — e.g. `risk_lane` ∈
 `{tiny, normal, high_risk}`, story `status` ∈
@@ -124,7 +153,7 @@ CHECK constraints encode the domain vocabulary — e.g. `risk_lane` ∈
 `{correction, override, escalation, approval}` and `source` ∈
 `{human, reviewer, ci, agent}`. List-valued columns store JSON arrays, produced
 from CSV input by `CsvList` in
-[`domain.rs`](../../crates/harness-cli/src/domain.rs#L1059-L1090).
+[`domain.rs`](../../crates/harness-cli/src/domain.rs#L1281-L1308).
 
 ## Dependencies
 

@@ -89,18 +89,18 @@ repo.
 | [Agent Harness](./agent-harness.md)      | The `_harness/` execution framework: the 7-stage workflow and skill registry. |
 | [Documentation](./documentation.md)      | The human-facing `docs/` reference: ADRs, stories, templates, glossary.       |
 | [Skills](./skills.md)                    | Agent-invocable generators under `.agents/skills/` (deepwiki, knowledge).     |
-| [Distribution](./distribution.md)        | Install scripts and the `scripts/` directory that vendor the harness.         |
+| [Distribution](./distribution.md)        | Install / migrate scripts and the prebuilt `_harness/bin` binary.             |
 
 ## Repository map
 
 | Path                                        | Description                                                            |
 | ------------------------------------------- | ---------------------------------------------------------------------- |
 | [`crates/`](../../crates)                   | Rust workspace; contains the `harness-cli` crate (the durable layer).  |
-| [`scripts/`](../../scripts)                 | Prebuilt CLI binary, SQL schema migrations, and automation docs.       |
-| [`_harness/`](../../_harness)               | Agent execution framework: workflow, standards, CLI reference, skills. |
-| [`docs/`](../../docs)                       | Human reference docs: architecture, decisions, stories, templates.     |
-| [`.agents/`](../../.agents)                 | Agent-invocable skills (deepwiki, knowledge-index).                    |
-| [`guides/`](../../guides)                   | Long-form guides on the harness process and design.                    |
-| [`install.sh`](../../install.sh)            | Vendors the harness (docs, `_harness`, scripts) into a target repo.    |
+| [`_harness/`](../../_harness)               | Agent framework: workflow, standards, CLI reference, skills, schema, prebuilt binary, `harness.db`. |
+| [`docs/`](../../docs)                       | Human reference + product truth: decisions, stories, product, knowledge index, this wiki. |
+| [`.agents/`](../../.agents)                 | Agent-invocable skill entrypoints (deepwiki, knowledge-index).         |
+| [`.claude/`](../../.claude)                 | Claude Code skill entrypoints mirroring `.agents/skills/`.             |
+| [`install.sh`](../../install.sh)            | Vendors the harness (`_harness`, `docs`, `.agents`, dotfiles) into a target repo. |
+| [`migrate.sh`](../../migrate.sh)            | Upgrades an old-layout install (`scripts/`, root `harness.db`) to the unified `_harness/`. |
 | [`AGENTS.md`](../../AGENTS.md)              | Agent entrypoint; points at `_harness/00-AGENTS.md`.                   |
 | [`Cargo.toml`](../../Cargo.toml)            | Workspace manifest.                                                    |

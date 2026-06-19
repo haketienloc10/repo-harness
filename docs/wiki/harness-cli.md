@@ -5,10 +5,11 @@
 `harness-cli` is the only executable component in the repository — a single Rust
 binary that owns the **durable layer**. Policy stays in Markdown; this CLI
 records and queries the operational data agents produce while working (intakes,
-stories, decisions, backlog items, registered tools, interventions, traces) in a
-local SQLite database (`harness.db`). It also scores traces and context reads,
-runs the drift audit, generates improvement proposals, and scaffolds/checks the
-repository Knowledge Index.
+stories, decisions, backlog items, registered tools, interventions, traces, and
+evidence pointers) in a local SQLite database (`_harness/harness.db`). It also
+scores traces and context reads, gates completion (`done-check`), runs the drift
+audit, generates improvement proposals, and scaffolds/checks the repository
+Knowledge Index.
 
 The crate follows a **clean / hexagonal architecture**: dependencies point
 inward toward `domain`, and each layer lives in its own module.
@@ -56,33 +57,35 @@ and never touches SQLite (see
 ## Public interface
 
 Top-level subcommands (the `Command` enum in
-[`interface.rs`](../../crates/harness-cli/src/interface.rs#L33-L66)):
+[`interface.rs`](../../crates/harness-cli/src/interface.rs#L36-L73)):
 
-| Command                         | Purpose                                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `init`                          | Create `harness.db` if missing; apply schema version 1.                                                                  |
-| `migrate`                       | Apply pending schema migrations from `_harness/schema/`.                                                                  |
-| `import brownfield`             | Seed the DB from existing `TEST_MATRIX`, decisions, and backlog Markdown.                                                |
-| `intake`                        | Record a feature-intake classification (`--type`, `--summary`, `--lane`).                                                |
-| `story add/update/verify(-all)` | Add a story, update its status and proof flags (unit/integration/e2e/platform), or run its configured verify command.    |
-| `decision add/verify`           | Record an ADR or run its configured verify command.                                                                      |
-| `backlog add/close`             | Track harness-improvement proposals through an evidence loop.                                                            |
-| `tool register/remove`          | Maintain the machine-readable registry of user-provided project tools.                                                   |
-| `intervention add`              | Record a human / reviewer / CI / agent intervention (correction, override, escalation, approval).                        |
-| `trace`                         | Record an agent execution trace (actions, files, outcome, friction).                                                     |
-| `score-trace` / `score-context` | Score a trace against the quality tiers, or its context reads against `CONTEXT_RULES.md`.                                |
-| `audit`                         | Run the drift audit and entropy score.                                                                                   |
-| `propose`                       | Generate improvement proposals from observed patterns.                                                                   |
-| `query <view>`                  | Read views: `matrix`, `backlog`, `decisions`, `intakes`, `traces`, `friction`, `tools`, `interventions`, `stats`, `sql`. |
-| `knowledge scaffold/check`      | Generate or verify `docs/KNOWLEDGE_INDEX.md`.                                                                            |
+| Command                         | Purpose                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`                          | Create `harness.db` if missing; apply schema version 1.                                                                                     |
+| `migrate`                       | Apply pending schema migrations from `_harness/schema/`.                                                                                    |
+| `import brownfield`             | Seed the DB from existing `TEST_MATRIX`, decisions, and backlog Markdown.                                                                   |
+| `intake`                        | Record a feature-intake classification (`--type`, `--summary`, `--lane`).                                                                   |
+| `story add/update/verify(-all)` | Add a story, update its status and proof flags (unit/integration/e2e/platform), or run its configured verify command.                       |
+| `decision add/verify`           | Record an ADR or run its configured verify command.                                                                                         |
+| `backlog add/close`             | Track harness-improvement proposals through an evidence loop.                                                                               |
+| `tool register/remove`          | Maintain the machine-readable registry of user-provided project tools.                                                                      |
+| `intervention add`              | Record a human / reviewer / CI / agent intervention (correction, override, escalation, approval).                                           |
+| `trace`                         | Record an agent execution trace (actions, files, outcome, friction, next action).                                                           |
+| `evidence add/list`             | Hash and store an artifact (log / diff / screenshot / report / file) under `_harness/evidence/`, or list its pointers.                      |
+| `score-trace` / `score-context` | Score a trace against the quality tiers, or its context reads against `CONTEXT_RULES.md`.                                                   |
+| `done-check`                    | Lane-aware completion gate; exits non-zero when required proof is missing.                                                                  |
+| `audit`                         | Run the drift audit and entropy score.                                                                                                      |
+| `propose`                       | Generate improvement proposals from observed patterns.                                                                                      |
+| `query <view>`                  | Read views: `status`, `recap`, `matrix`, `backlog`, `decisions`, `intakes`, `traces`, `friction`, `tools`, `interventions`, `stats`, `sql`. |
+| `knowledge scaffold/check`      | Generate or verify `docs/KNOWLEDGE_INDEX.md`.                                                                                               |
 
 Resolution of paths is environment-driven:
-[`resolve_context`](../../crates/harness-cli/src/interface.rs#L957-L970) honors
-`HARNESS_REPO_ROOT` and `HARNESS_DB`, defaulting the database to
-`<repo_root>/harness.db` and schema to `<repo_root>/_harness/schema`.
+[`resolve_context`](../../crates/harness-cli/src/interface.rs#L1232-L1238)
+honors `HARNESS_REPO_ROOT` and `HARNESS_DB`, defaulting the database to
+`<repo_root>/_harness/harness.db` and schema to `<repo_root>/_harness/schema`.
 
 The persistence contract is the
-[`HarnessRepository` trait](../../crates/harness-cli/src/infrastructure.rs#L65-L97),
+[`HarnessRepository` trait](../../crates/harness-cli/src/infrastructure.rs#L89-L132),
 implemented by `SqliteHarnessRepository`.
 
 ## Dependencies
