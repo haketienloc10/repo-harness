@@ -4,17 +4,17 @@
 
 - **Phạm vi định mức (đọc trước khi áp số):** Con số mỗi lane bên dưới là TỔNG
   Harness context theo read-shape của lane (không tách "tầng nền" riêng) — khớp
-  định nghĩa ở `_harness/docs/CONTEXT_RULES.md` (nguồn chuẩn). Nguyên tắc vận hành: ưu
-  tiên `rg` có mục tiêu thay vì đọc hàng loạt; đọc section nhỏ nhất trả lời câu
-  hỏi của giai đoạn hiện tại; escalate context khi một retrieval trigger fire;
-  ngừng đọc history không liên quan khi đã rõ lane + file ảnh hưởng + validation
-  path. Mô hình phase × lane (Must/Should/Skip) chi tiết:
+  định nghĩa ở `_harness/docs/CONTEXT_RULES.md` (nguồn chuẩn). Nguyên tắc vận
+  hành: ưu tiên `rg` có mục tiêu thay vì đọc hàng loạt; đọc section nhỏ nhất trả
+  lời câu hỏi của giai đoạn hiện tại; escalate context khi một retrieval trigger
+  fire; ngừng đọc history không liên quan khi đã rõ lane + file ảnh hưởng +
+  validation path. Mô hình phase × lane (Must/Should/Skip) chi tiết:
   `_harness/docs/CONTEXT_RULES.md` (on-demand).
 - **Tài liệu dùng chung (Luôn có thể truy xuất):** Bất cứ khi nào cần tương tác
   với `harness.db`, Agent luôn được phép đọc `_harness/03-CLI_REFERENCE.md`
   (cheatsheet gọn) để lấy cú pháp; chi tiết sâu hơn nằm ở
-  `_harness/docs/CLI_REFERENCE.md` và `harness-cli <cmd> --help` — chỉ tra on-demand,
-  KHÔNG preload. Để biết lệnh/công cụ nào đang có, dùng
+  `_harness/docs/CLI_REFERENCE.md` và `harness-cli <cmd> --help` — chỉ tra
+  on-demand, KHÔNG preload. Để biết lệnh/công cụ nào đang có, dùng
   `harness-cli query tools --summary` (tool registry, xem
   `_harness/docs/TOOL_REGISTRY.md`) thay vì đoán.
 - **Skill (nạp on-demand):** KHÔNG preload `skills/*`. Tới giai đoạn có trigger
@@ -121,11 +121,11 @@
   - `IF` một bước CÓ THỂ dùng công cụ ngoài (linter, code-graph, deploy-check):
     tra theo _capability_ — `query tools --capability <name> --status present` —
     KHÔNG tham chiếu tên tool. Áp **Degrade Ladder** (xem
-    `_harness/docs/TOOL_REGISTRY.md`): không có provider nào đăng ký ⇒ capability
-    _inactive_ → skip sạch (KHÔNG phải drift); đăng ký nhưng `missing`/thiếu một
-    phần ⇒ _degraded_ → chạy với phần resolve được + bật cờ `Weak proof` + ghi
-    gap; tất cả `present` ⇒ Full. Chạy `tool check` đầu intake để `status` phản
-    ánh thực tế. Công cụ dự án chưa đăng ký thì
+    `_harness/docs/TOOL_REGISTRY.md`): không có provider nào đăng ký ⇒
+    capability _inactive_ → skip sạch (KHÔNG phải drift); đăng ký nhưng
+    `missing`/thiếu một phần ⇒ _degraded_ → chạy với phần resolve được + bật cờ
+    `Weak proof` + ghi gap; tất cả `present` ⇒ Full. Chạy `tool check` đầu
+    intake để `status` phản ánh thực tế. Công cụ dự án chưa đăng ký thì
     `tool register --kind <k> --capability <cap> [--scan <path|url>]`.
 - **Xử lý theo Input Type (DOCS FIRST):**
   - `IF [Type == New spec]`: Coi spec là _input material_, KHÔNG giữ làm spec
@@ -170,6 +170,12 @@
   tuyệt đối "Dependency Rule" và "Parse-First Boundary" (Tra cứu tại
   `02-STANDARDS.md`). Bám sát chính xác những gì đã thiết kế trong `execplan.md`
   hoặc `design.md`.
+- **Kinh tế code (TRƯỚC khi gõ logic):** chạy nấc thang Lazy Senior ở
+  `02-STANDARDS.md` §3 — dừng ở nấc đầu tiên đứng vững (YAGNI → stdlib → nền
+  tảng → dep sẵn có → one-liner → code tối thiểu). Shortcut có chủ đích → để lại
+  `harness:` comment tại chỗ (nêu trần + lối nâng cấp); trần đáng kể → thêm
+  backlog (GĐ6). Lens này CHẶN code thừa, KHÔNG hạ chuẩn §1/§2 (layering vẫn bắt
+  buộc, proof vẫn theo Validation Ladder).
 - **Vừa code vừa giữ chuẩn (shift-left):** code theo ba ràng buộc — _Quality_
   (Dependency Rule, Parse-First, đúng `design.md`), _Security_ (validate input
   biên, KHÔNG lộ secret/credential, để ý Hard Gate), _Maintainability_
@@ -219,9 +225,9 @@
   sang Giai đoạn 5 để ghi Trace partial/failed).
 - **Bằng chứng bền vững (auto-capture, default-on):** `story verify <id>` TỰ ghi
   stdout+stderr vào evidence store (`kind='log'`, kèm `command` + `result`),
-  dedup keep-last theo `(story, kind, result)` + sha256; in evidence id ở output.
-  Proof boolean `1` LUÔN có log tươi đỡ lưng — đây là điều `done-check` (GĐ7)
-  enforce. Cờ `--no-capture` chỉ cho lần chạy nháp. Artifact phi-verify
+  dedup keep-last theo `(story, kind, result)` + sha256; in evidence id ở
+  output. Proof boolean `1` LUÔN có log tươi đỡ lưng — đây là điều `done-check`
+  (GĐ7) enforce. Cờ `--no-capture` chỉ cho lần chạy nháp. Artifact phi-verify
   (screenshot E2E, report) ghi qua `harness-cli evidence add` và nêu evidence id
   ở `--notes` của trace (GĐ5).
 
@@ -261,14 +267,14 @@
     _Project memory_, (5) _Task state_, (6) _Observability_, (7) _Failure
     attribution_, (8) _Verification_, (9) _Permissions_, (10) _Entropy
     auditing_, (11) _Intervention recording_. (Mô tả/trạng thái sâu:
-    `_harness/docs/HARNESS_COMPONENTS.md`.) `query recap` gom Friction theo đúng 11
-    Responsibilities này.
-- **Next-action / Resume (BẮT BUỘC khi việc còn dở):** `IF [Outcome ∈
-  {partial, blocked, failed}]` ⇒ trace BẮT BUỘC có `--next-action "<việc kế
-  tiếp>"` (CLI từ chối rỗng, exit != 0). Nếu trace có `--story`, hint ghi luôn
-  vào `story.next_action` (con trỏ WIP sống) và nổi lên ở RESUME của `query
-  status`. `IF [Outcome == completed]` và có `--story` ⇒ `story.next_action` tự
-  được clear (resume hint không sống quá việc đã xong).
+    `_harness/docs/HARNESS_COMPONENTS.md`.) `query recap` gom Friction theo đúng
+    11 Responsibilities này.
+- **Next-action / Resume (BẮT BUỘC khi việc còn dở):**
+  `IF [Outcome ∈ {partial, blocked, failed}]` ⇒ trace BẮT BUỘC có
+  `--next-action "<việc kế tiếp>"` (CLI từ chối rỗng, exit != 0). Nếu trace có
+  `--story`, hint ghi luôn vào `story.next_action` (con trỏ WIP sống) và nổi lên
+  ở RESUME của `query status`. `IF [Outcome == completed]` và có `--story` ⇒
+  `story.next_action` tự được clear (resume hint không sống quá việc đã xong).
 - **Khi nào BẮT BUỘC ghi Friction:** (1) phải suy đoán một luật/nguồn-sự-thật
   còn thiếu; (2) validation không rõ, không chạy được, hoặc quá tốn kém; (3)
   doc/record/story cũ hoặc mâu thuẫn; (4) lộ ra bước thủ công lặp lại nên thành
@@ -339,8 +345,8 @@ Docs/Matrix cập nhật, Validation đã chạy, Trace đã lưu.
   CHƯA done: đọc checklist `✘`, sửa cho xanh hoặc ghi backlog (GĐ6) rồi mới
   tuyên bố xong. Gate kiểm theo lane: tiny chỉ cần ≥1 trace liên kết;
   normal/high-risk thêm `status=implemented`, `verify pass`, có evidence `log`
-  pass, ≥1 proof flag, `next_action` đã clear; high-risk thêm 4 neo packet. KHÔNG
-  tự khẳng định "done" bằng văn xuôi khi `done-check` chưa exit 0.
+  pass, ≥1 proof flag, `next_action` đã clear; high-risk thêm 4 neo packet.
+  KHÔNG tự khẳng định "done" bằng văn xuôi khi `done-check` chưa exit 0.
 - **Smoke audit (BẮT BUỘC trước khi đóng tác vụ):** chạy `harness-cli audit`.
   Nếu xuất hiện **Orphaned stories** (×10) hoặc **Unverified stories** (×5) do
   chính tác vụ này tạo ra → xử lý NGAY (link trace / verify / ghi backlog GĐ6)
