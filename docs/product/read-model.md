@@ -4,8 +4,8 @@ The product contract for the agent-facing **read-path** of the harness: how an
 agent (or a fresh session) answers _what has been done / what is in progress /
 what needs doing_, with **evidence and artifacts** backing every claim.
 
-Derived from `_harness/docs/proposals/2026-06-17-read-model-evidence-upgrade.md` (frozen
-design record after slicing).
+Derived from `_harness/docs/proposals/2026-06-17-read-model-evidence-upgrade.md`
+(frozen design record after slicing).
 
 ## Why this layer exists
 
@@ -14,11 +14,11 @@ trace → proof). "Help the agent understand the project" is a **read-path,
 cross-task** problem. There are three reading planes; this layer fills the third
 and closes the evidence loop:
 
-| Plane                | Answers                       | Nature             | Status   |
-| -------------------- | ----------------------------- | ------------------ | -------- |
-| `KNOWLEDGE_INDEX.md` | what the repo _is_            | static, router     | existing |
-| `query stats`        | _how many_ (totals)           | dynamic, raw count | existing |
-| **Read-Model**       | what is _being / been / to-do_ | dynamic, ranked  | NEW      |
+| Plane                | Answers                        | Nature             | Status   |
+| -------------------- | ------------------------------ | ------------------ | -------- |
+| `KNOWLEDGE_INDEX.md` | what the repo _is_             | static, router     | existing |
+| `query stats`        | _how many_ (totals)            | dynamic, raw count | existing |
+| **Read-Model**       | what is _being / been / to-do_ | dynamic, ranked    | NEW      |
 
 ## Invariants (whole layer)
 
@@ -61,13 +61,17 @@ its log by default (keep-last-per-`(story,kind,result)` + sha256 dedup;
 `story.next_action` is the live WIP pointer; `trace.next_action` is the
 immutable record at trace time. A trace with outcome `partial|blocked|failed`
 MUST set `--next-action` (CLI rejects empty); `completed` clears
-`story.next_action`. Surfaced in the RESUME section of `query status`.
+`story.next_action`. The RESUME section of `query status` surfaces only live
+unresolved story pointers; older unfinished trace records are historical and
+must not reappear after a newer completed trace clears the story pointer.
+Unlinked unfinished traces can still appear because they have no story pointer
+to clear.
 
 ### Done-check gate — `harness-cli done-check`
 
 A lane-aware aggregator (read + exit code, no new store) packaging existing
-checks plus evidence/next-action into one Stage-7 gate. Exit `0` = all pass,
-`1` = any fail. Checklist output with per-line reason.
+checks plus evidence/next-action into one Stage-7 gate. Exit `0` = all pass, `1`
+= any fail. Checklist output with per-line reason.
 
 ### Recap rollup — `harness-cli query recap`
 

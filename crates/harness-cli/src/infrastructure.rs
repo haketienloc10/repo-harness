@@ -1637,13 +1637,31 @@ impl HarnessRepository for SqliteHarnessRepository {
         })?;
         let needs_proof = StatusSection::capped(collect_rows(proof_rows)?, limit);
 
-        // RESUME — most recent unfinished traces carrying a next-action hint.
+        // RESUME — unresolved live story pointers plus unlinked unfinished traces.
         let mut resume_stmt = connection.prepare(
-            "SELECT id, story_id, outcome, next_action, task_summary FROM trace
-             WHERE outcome IN ('partial','blocked','failed')
-             ORDER BY id DESC;",
+            "SELECT trace.id,
+                    trace.story_id,
+                    trace.outcome,
+                    COALESCE(story.next_action, trace.next_action),
+                    trace.task_summary
+             FROM trace
+             LEFT JOIN story ON story.id = trace.story_id
+             WHERE trace.outcome IN ('partial','blocked','failed')
+               AND (
+                 (trace.story_id IS NULL AND ?1 IS NULL)
+                 OR (
+                   story.next_action IS NOT NULL
+                   AND (?1 IS NULL OR story.risk_lane = ?1)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM trace newer
+                     WHERE newer.story_id = trace.story_id
+                       AND newer.id > trace.id
+                   )
+                 )
+               )
+             ORDER BY trace.id DESC;",
         )?;
-        let resume_rows = resume_stmt.query_map([], |row| {
+        let resume_rows = resume_stmt.query_map(params![lane], |row| {
             Ok(StatusResume {
                 trace_id: row.get(0)?,
                 story_id: row.get(1)?,
@@ -3777,6 +3795,33 @@ mod tests {
             })
             .unwrap();
         assert_eq!(high.active.total, 0);
+    }
+
+    #[test]
+    fn query_status_resume_ignores_stale_unfinished_traces_after_completion() {
+        let (_temp_dir, _repo_root, repository) = temp_repo_repository();
+        repository.init().unwrap();
+        repository
+            .add_story(StoryAddInput {
+                id: "US-NA".to_owned(),
+                title: "Next action".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+
+        repository
+            .record_trace(next_action_trace("partial", Some("finish the parser")))
+            .unwrap();
+        repository
+            .record_trace(next_action_trace("completed", None))
+            .unwrap();
+
+        let status = repository.query_status(StatusFilter::default()).unwrap();
+        assert_eq!(status.resume.total, 0);
+        assert!(status.resume.items.is_empty());
     }
 
     #[test]
